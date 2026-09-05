@@ -7,14 +7,87 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum IndexingStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum ChatRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
 model User {
-  id          String   @id @default(cuid())
-  githubId    String   @unique @map("github_id")
-  githubLogin String   @map("github_login")
-  email       String?  @unique
-  avatarUrl   String?  @map("avatar_url")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id             String          @id @default(cuid())
+  githubId       String          @unique @map("github_id")
+  githubLogin    String          @map("github_login")
+  email          String?         @unique
+  avatarUrl      String?         @map("avatar_url")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  connectedRepos ConnectedRepo[]
+  chatSessions   ChatSession[]
 
   @@map("users")
+}
+
+model ConnectedRepo {
+  id            String        @id @default(cuid())
+  userId        String        @map("user_id")
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName      String        @map("full_name")
+  htmlUrl       String        @map("html_url")
+  isPrivate     Boolean       @default(false) @map("is_private")
+  defaultBranch String        @default("main") @map("default_branch")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+  indexingJobs  IndexingJob[]
+  chatSessions  ChatSession[]
+
+  @@unique([userId, fullName])
+  @@map("connected_repos")
+}
+
+model IndexingJob {
+  id              String         @id @default(cuid())
+  connectedRepoId String         @map("connected_repo_id")
+  connectedRepo   ConnectedRepo  @relation(fields: [connectedRepoId], references: [id], onDelete: Cascade)
+  status          IndexingStatus @default(PENDING)
+  commitSha       String?        @map("commit_sha")
+  progressMessage String?        @map("progress_message")
+  errorMessage    String?        @map("error_message")
+  startedAt       DateTime?      @map("started_at")
+  finishedAt      DateTime?      @map("finished_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@map("indexing_jobs")
+}
+
+model ChatSession {
+  id              String        @id @default(cuid())
+  userId          String        @map("user_id")
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectedRepoId String        @map("connected_repo_id")
+  connectedRepo   ConnectedRepo @relation(fields: [connectedRepoId], references: [id], onDelete: Cascade)
+  title           String?
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  messages        ChatMessage[]
+
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id            String      @id @default(cuid())
+  chatSessionId String      @map("chat_session_id")
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  role          ChatRole
+  content       String      @db.Text
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  @@map("chat_messages")
 }
