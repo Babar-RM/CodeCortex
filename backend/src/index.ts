@@ -1,6 +1,9 @@
 import express, { Express, Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import { ExpressAuth } from "@auth/express";
+import { authConfig } from "./lib/auth";
+import { requireAuth } from "./middleware/requireAuth";
 
 dotenv.config();
 
@@ -15,10 +18,21 @@ app.use(
   })
 );
 
+// Auth.js route mounted BEFORE express.json() per RFC 0002
+app.use("/auth/*", ExpressAuth(authConfig));
+
 app.use(express.json());
 
 app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "ok" });
+});
+
+// Protected identity test route (RFC 0002)
+app.get("/api/me", requireAuth, (req: Request, res: Response) => {
+  res.status(200).json({
+    user: req.user,
+    hasToken: Boolean(req.githubAccessToken),
+  });
 });
 
 if (process.env.NODE_ENV !== "test") {
