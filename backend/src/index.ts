@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { ExpressAuth } from "@auth/express";
 import { authConfig } from "./lib/auth";
 import { requireAuth } from "./middleware/requireAuth";
+import { reposRouter } from "./routes/repos";
 
 dotenv.config();
 
@@ -34,6 +35,9 @@ app.get("/api/me", requireAuth, (req: Request, res: Response) => {
     hasToken: Boolean(req.githubAccessToken),
   });
 });
+
+// Protected repository connection routes (RFC 0004)
+app.use("/api/repos", reposRouter);
 
 if (process.env.NODE_ENV !== "test") {
   app.listen(port, () => {
