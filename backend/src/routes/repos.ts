@@ -2,6 +2,8 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/requireAuth";
 import { prisma } from "../lib/prisma";
+import { indexRepoQueue } from "../jobs/queue";
+
 
 export const connectRepoSchema = z.object({
   fullName: z
@@ -117,7 +119,17 @@ reposRouter.post("/", async (req: Request, res: Response) => {
       },
     });
 
+    try {
+      await indexRepoQueue.add("index-repo", {
+        indexingJobId: job.id,
+        connectedRepoId: repo.id,
+      });
+    } catch (queueErr) {
+      console.warn("[repos] Warning: Could not enqueue job to Redis:", queueErr);
+    }
+
     return res.status(201).json({ repo, job });
+
   } catch (error) {
     console.error("Error connecting repo:", error);
     return res.status(500).json({ error: "Failed to connect repository" });
