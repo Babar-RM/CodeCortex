@@ -39,7 +39,19 @@ reposRouter.get("/github", async (req: Request, res: Response) => {
       return res.status(response.status).json({ error: "Failed to fetch repositories from GitHub" });
     }
 
-    const data = (await response.json()) as any[];
+    interface GitHubRepoItem {
+      id: number;
+      name: string;
+      full_name: string;
+      html_url: string;
+      private: boolean;
+      default_branch: string;
+      description?: string | null;
+      updated_at?: string;
+    }
+
+    const data = (await response.json()) as GitHubRepoItem[];
+
     const repos = data.map((repo) => ({
       id: repo.id,
       name: repo.name,
