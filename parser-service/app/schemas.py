@@ -41,3 +41,13 @@ class ParseResponse(BaseModel):
     imports: list[ImportFact] = Field(default_factory=list)
     calls: list[CallFact] = Field(default_factory=list)
     error: str | None = Field(default=None, description="Syntax or processing error message if any")
+
+
+class EmbedRequest(BaseModel):
+    texts: list[str] = Field(..., description="Array of text chunks or symbol descriptions to embed")
+
+
+class EmbedResponse(BaseModel):
+    embeddings: list[list[float]] = Field(..., description="Array of 384-dimensional dense vectors")
+    error: str | None = Field(default=None, description="Error message if inference failed")
+

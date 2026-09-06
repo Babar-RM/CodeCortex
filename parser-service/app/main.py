@@ -1,10 +1,11 @@
 from fastapi import FastAPI
-from app.schemas import ParseRequest, ParseResponse
+from app.schemas import ParseRequest, ParseResponse, EmbedRequest, EmbedResponse
 from app.parsers.javascript import parse_js_ts_file
+from app.embeddings import generate_embeddings
 
 app = FastAPI(
     title="CodeCortex Parser Microservice",
-    description="Internal tree-sitter AST structural parsing microservice",
+    description="Internal tree-sitter AST structural parsing & local embedding microservice",
     version="0.1.0",
 )
 
@@ -24,7 +25,6 @@ def parse_file(payload: ParseRequest) -> ParseResponse:
     ):
         return parse_js_ts_file(payload.file_path, payload.content, payload.language)
 
-    # Fallback for unhandled languages in Phase 1
     return ParseResponse(
         file_path=payload.file_path,
         language=payload.language,
@@ -33,3 +33,13 @@ def parse_file(payload: ParseRequest) -> ParseResponse:
         imports=[],
         calls=[],
     )
+
+
+@app.post("/embed", response_model=EmbedResponse)
+def embed_texts(payload: EmbedRequest) -> EmbedResponse:
+    try:
+        vectors = generate_embeddings(payload.texts)
+        return EmbedResponse(embeddings=vectors)
+    except Exception as e:
+        return EmbedResponse(embeddings=[], error=str(e))
+

@@ -156,3 +156,36 @@ export async function checkParserHealth(): Promise<boolean> {
     return false;
   }
 }
+
+export async function embedTextsWithService(texts: string[]): Promise<number[][]> {
+  if (texts.length === 0) {
+    return [];
+  }
+
+  try {
+    const response = await fetch(`${PARSER_SERVICE_URL}/embed`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ texts }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Parser service /embed returned HTTP ${response.status}`);
+    }
+
+    const data = (await response.json()) as { embeddings?: number[][]; error?: string };
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
+    return data.embeddings || [];
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Failed to generate embeddings";
+    console.warn(`[parser-client] Error calling /embed: ${errorMessage}`);
+    // Return empty vectors on failure to preserve error isolation
+    return texts.map(() => []);
+  }
+}
+
