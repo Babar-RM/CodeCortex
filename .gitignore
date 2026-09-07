@@ -1,30 +1,51 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+.venv/
+venv/
+env/
+ENV/
 
-# Build outputs
+# Build & Compilation Outputs
 dist/
 .next/
 out/
 build/
+*.egg-info/
+.eggs/
 __pycache__/
 *.pyc
+*.pyo
 
-# Environment files & secrets
+# Temp Workspaces & Cloned Repos (Phase 1 Pipeline)
+tmp/
+.tmp/
+clones/
+temp/
+
+# Test Coverage
+coverage/
+.nyc_output/
+.pytest_cache/
+
+# Environment Files & Secrets (MUST NOT BE COMMITTED)
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
 
 # Logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# System & IDE
+# OS & IDE Files
 .DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 .vscode/
 .idea/
+*.swp
+*.swo

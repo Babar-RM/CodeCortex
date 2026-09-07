@@ -44,8 +44,9 @@ model ConnectedRepo {
   defaultBranch String        @default("main") @map("default_branch")
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
-  indexingJobs  IndexingJob[]
-  chatSessions  ChatSession[]
+  indexingJobs   IndexingJob[]
+  chatSessions   ChatSession[]
+  codeEmbeddings CodeEmbedding[]
 
   @@unique([userId, fullName])
   @@map("connected_repos")
@@ -91,3 +92,18 @@ model ChatMessage {
 
   @@map("chat_messages")
 }
+
+model CodeEmbedding {
+  id              String        @id @default(cuid())
+  connectedRepoId String        @map("connected_repo_id")
+  connectedRepo   ConnectedRepo @relation(fields: [connectedRepoId], references: [id], onDelete: Cascade)
+  entityType      String        @map("entity_type")
+  entityName      String        @map("entity_name")
+  filePath        String        @map("file_path")
+  contentChunk    String        @map("content_chunk") @db.Text
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@index([connectedRepoId])
+  @@map("code_embeddings")
+}
+
