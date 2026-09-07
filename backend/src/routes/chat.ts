@@ -1,0 +1,202 @@
+import { Router, Request, Response } from "express";
+import { z } from "zod";
+import { prisma } from "../lib/prisma";
+import { requireAuth } from "../middleware/requireAuth";
+import { askSingleAgent, ChatHistoryMessage } from "../lib/agent";
+
+export const chatRouter = Router();
+
+// Apply requireAuth to all chat endpoints
+chatRouter.use(requireAuth);
+
+const CreateSessionSchema = z.object({
+  connectedRepoId: z.string().min(1, "connectedRepoId is required"),
+  title: z.string().optional(),
+});
+
+const PostMessageSchema = z.object({
+  chatSessionId: z.string().min(1, "chatSessionId is required"),
+  content: z.string().min(1, "content cannot be empty"),
+});
+
+/**
+ * POST /api/chat/sessions
+ * Create a new chat session scoped to a connected repo owned by the authenticated user
+ */
+chatRouter.post("/sessions", async (req: Request, res: Response) => {
+  try {
+    const parseResult = CreateSessionSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({ error: parseResult.error.issues[0].message });
+    }
+
+    const { connectedRepoId, title } = parseResult.data;
+
+    // Verify repository ownership
+    const repo = await prisma.connectedRepo.findFirst({
+      where: {
+        id: connectedRepoId,
+        userId: req.user!.id,
+      },
+    });
+
+    if (!repo) {
+      return res.status(404).json({ error: "Connected repository not found or access denied" });
+    }
+
+    const session = await prisma.chatSession.create({
+      data: {
+        userId: req.user!.id,
+        connectedRepoId,
+        title: title || `Chat for ${repo.fullName}`,
+      },
+    });
+
+    return res.status(201).json({ session });
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Internal server error";
+    return res.status(500).json({ error: errorMessage });
+  }
+});
+
+/**
+ * GET /api/chat/sessions
+ * List chat sessions owned by the authenticated user (optional ?connectedRepoId= filter)
+ */
+chatRouter.get("/sessions", async (req: Request, res: Response) => {
+  try {
+    const connectedRepoId = req.query.connectedRepoId as string | undefined;
+
+    const sessions = await prisma.chatSession.findMany({
+      where: {
+        userId: req.user!.id,
+        ...(connectedRepoId ? { connectedRepoId } : {}),
+      },
+      orderBy: { updatedAt: "desc" },
+      include: {
+        connectedRepo: {
+          select: {
+            id: true,
+            fullName: true,
+          },
+        },
+      },
+    });
+
+    return res.json({ sessions });
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Internal server error";
+    return res.status(500).json({ error: errorMessage });
+  }
+});
+
+/**
+ * POST /api/chat/messages
+ * Post a user message, trigger single-agent LLM retrieval & completion, save assistant reply, return both
+ */
+chatRouter.post("/messages", async (req: Request, res: Response) => {
+  try {
+    const parseResult = PostMessageSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({ error: parseResult.error.issues[0].message });
+    }
+
+    const { chatSessionId, content } = parseResult.data;
+
+    // Verify session ownership
+    const session = await prisma.chatSession.findFirst({
+      where: {
+        id: chatSessionId,
+        userId: req.user!.id,
+      },
+    });
+
+    if (!session) {
+      return res.status(404).json({ error: "Chat session not found or access denied" });
+    }
+
+    // Save user message
+    const userMessage = await prisma.chatMessage.create({
+      data: {
+        chatSessionId,
+        role: "USER",
+        content,
+      },
+    });
+
+    // Fetch prior messages as chat history
+    const previousMessages = await prisma.chatMessage.findMany({
+      where: { chatSessionId },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const chatHistory: ChatHistoryMessage[] = previousMessages
+      .filter((m) => m.id !== userMessage.id)
+      .map((m) => ({
+        role: m.role === "USER" ? "user" : "assistant",
+        content: m.content,
+      }));
+
+    // Trigger single-agent LLM response
+    const agentResult = await askSingleAgent({
+      connectedRepoId: session.connectedRepoId,
+      question: content,
+      chatHistory,
+    });
+
+    // Save assistant message
+    const assistantMessage = await prisma.chatMessage.create({
+      data: {
+        chatSessionId,
+        role: "ASSISTANT",
+        content: agentResult.answer,
+      },
+    });
+
+    // Update session updatedAt timestamp
+    await prisma.chatSession.update({
+      where: { id: chatSessionId },
+      data: { updatedAt: new Date() },
+    });
+
+    return res.status(201).json({
+      userMessage,
+      assistantMessage,
+    });
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Internal server error";
+    return res.status(500).json({ error: errorMessage });
+  }
+});
+
+/**
+ * GET /api/chat/sessions/:id/messages
+ * List full message history for a chat session owned by the authenticated user
+ */
+chatRouter.get("/sessions/:id/messages", async (req: Request, res: Response) => {
+  try {
+    const sessionId = req.params.id;
+
+    // Verify session ownership
+    const session = await prisma.chatSession.findFirst({
+      where: {
+        id: sessionId,
+        userId: req.user!.id,
+      },
+    });
+
+    if (!session) {
+      return res.status(404).json({ error: "Chat session not found or access denied" });
+    }
+
+    const messages = await prisma.chatMessage.findMany({
+      where: { chatSessionId: sessionId },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return res.json({ messages });
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Internal server error";
+    return res.status(500).json({ error: errorMessage });
+  }
+});

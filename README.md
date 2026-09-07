@@ -1,6 +1,6 @@
 # CodeCortex
 
-**CodeCortex** is a multi-agent AI system for understanding codebases through a living knowledge graph ([Neo4j](file:///e:/Projects/CodeCortex/AGENTS.md#L316)), structural AST parsing (`tree-sitter`), and semantic vector search (`pgvector`).
+**CodeCortex** is a multi-agent AI system for understanding codebases through a living knowledge graph (Neo4j), structural AST parsing (`tree-sitter`), and semantic vector search (`pgvector`).
 
 A team of specialized LLM agents reason over the code graph, with a dedicated **Critic agent** verifying every answer against the graph for guaranteed structural correctness.
 
@@ -15,7 +15,8 @@ codecortex/
 ├── README.md                  # Setup & project quick reference
 │
 ├── backend/                   # Express + TypeScript API & worker engine (Port 4000)
-├── frontend/                  # Next.js 14 presentation layer (Port 3000) — Built last
+├── parser-service/            # FastAPI + tree-sitter + bge-small-en-v1.5 (Port 8001)
+├── frontend/                  # Next.js 14 presentation layer (Port 3000)
 └── docs/rfcs/                 # Architectural Decision Records (RFC 0001–0023)
 ```
 
@@ -25,16 +26,19 @@ codecortex/
 
 ### 1. Requirements
 - Node.js >= 20.x
-- npm >= 10.x
+- Python >= 3.10 (for parser-service)
+- Postgres with `pgvector` extension
+- Neo4j Graph DB
+- Redis
 
-### 2. Setup & Running Backend
+### 2. Running Backend Tests
 ```bash
-cd backend
-npm install
-npm run dev
+npm test --prefix backend
+npm run lint --prefix backend
+npm run build --prefix backend
 ```
 
-### 3. Verification
+### 3. Health Verification
 ```bash
 curl http://localhost:4000/health
 # Response: {"status":"ok"}
@@ -44,8 +48,9 @@ curl http://localhost:4000/health
 
 ## Phase Status
 
-- [x] **Phase 0 Step 1**: Backend Scaffolding & RFC 0001 Service Topology
-- [ ] **Phase 0 Step 2**: GitHub OAuth Authentication (RFC 0002)
-- [ ] **Phase 0 Step 3**: Prisma Postgres Schema (RFC 0003)
-- [ ] **Phase 0 Step 4**: Repo-Connection API Routes & Frontend Dashboard (RFC 0004)
-- [ ] **Phase 1**: Ingestion Pipeline (Clone $\rightarrow$ AST Parse $\rightarrow$ Graph $\rightarrow$ Embeddings)
+- [x] **Phase 0**: Foundation (Auth, Prisma Postgres Schema, Repo-Connection API Routes)
+- [x] **Phase 1**: Ingestion Pipeline (Shallow Clone $\rightarrow$ tree-sitter AST Parse $\rightarrow$ Neo4j Graph $\rightarrow$ pgvector Embeddings $\rightarrow$ BullMQ Orchestration)
+- [x] **Phase 2**: Single Non-Specialized Agent (RFC 0011 Hybrid Retrieval + RFC 0012 Single-Agent RAG Engine & Chat Persistence REST API)
+- [ ] **Phase 3**: Full 6-Agent System (Planner, Explainer, Bug-Tracer, Reviewer, Refactorer, Critic)
+- [ ] **Phase 4**: Memory & Efficiency (Insight cache, incremental re-indexing, evidence display)
+- [ ] **Phase 5**: Hardening, Testing & Production Polish

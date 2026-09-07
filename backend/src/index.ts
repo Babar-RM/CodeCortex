@@ -5,6 +5,7 @@ import { ExpressAuth } from "@auth/express";
 import { authConfig } from "./lib/auth";
 import { requireAuth } from "./middleware/requireAuth";
 import { reposRouter } from "./routes/repos";
+import { chatRouter } from "./routes/chat";
 
 dotenv.config();
 
@@ -38,6 +39,9 @@ app.get("/api/me", requireAuth, (req: Request, res: Response) => {
 
 // Protected repository connection routes (RFC 0004)
 app.use("/api/repos", reposRouter);
+
+// Protected chat persistence routes (RFC 0012)
+app.use("/api/chat", chatRouter);
 
 if (process.env.NODE_ENV !== "test") {
   app.listen(port, () => {
