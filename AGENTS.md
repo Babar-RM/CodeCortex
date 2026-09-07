@@ -12,9 +12,10 @@ It is built in five phases, each with a hard checkpoint before the next begins. 
 
 | Phase | Name | Status |
 |---|---|---|
-| 0 | Foundation (auth, data model, repo-connection API) | ⬜ Not started |
-| 1 | Ingestion Pipeline (clone → parse → graph → embed → orchestrate) | ⬜ Not started |
+| 0 | Foundation (auth, data model, repo-connection API) | ✅ Completed |
+| 1 | Ingestion Pipeline (clone → parse → graph → embed → orchestrate) | ✅ Completed |
 | 2 | Single non-specialized agent (prove question-in/grounded-answer-out) | ⬜ Not started |
+
 | 3 | Full 6-agent system (Planner, Explainer, Bug-Tracer, Reviewer, Refactorer, Critic) | ⬜ Not started |
 | 4 | Memory & efficiency (insight cache, incremental re-indexing, evidence display) | ⬜ Not started |
 | 5 | Hardening, testing, polish (rate limits, RBAC, logging, automated tests) | ⬜ Not started |
