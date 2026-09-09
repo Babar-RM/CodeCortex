@@ -178,3 +178,56 @@ export async function cleanupRepo(workspacePath: string): Promise<void> {
     await fs.promises.rm(workspacePath, { recursive: true, force: true });
   }
 }
+
+export interface FileDiffResult {
+  addedFiles: string[];
+  modifiedFiles: string[];
+  deletedFiles: string[];
+}
+
+export async function computeFileDiff(
+  workspacePath: string,
+  lastCommitSha: string,
+  newCommitSha: string
+): Promise<FileDiffResult> {
+  const addedFiles: string[] = [];
+  const modifiedFiles: string[] = [];
+  const deletedFiles: string[] = [];
+
+  try {
+    const git = simpleGit(workspacePath);
+    const rawDiff = await git.raw([
+      "diff",
+      "--name-status",
+      lastCommitSha,
+      newCommitSha,
+    ]);
+
+    const lines = rawDiff.split("\n").filter((l) => l.trim().length > 0);
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 2) {
+        const status = parts[0];
+        const filePath = parts[1].replace(/\\/g, "/");
+
+        if (status.startsWith("A")) {
+          addedFiles.push(filePath);
+        } else if (status.startsWith("M")) {
+          modifiedFiles.push(filePath);
+        } else if (status.startsWith("D")) {
+          deletedFiles.push(filePath);
+        } else if (status.startsWith("R")) {
+          const newFilePath = parts[2] ? parts[2].replace(/\\/g, "/") : filePath;
+          deletedFiles.push(filePath);
+          addedFiles.push(newFilePath);
+        }
+      }
+    }
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Git diff failed";
+    console.warn(`[fetch-repo] Git diff failed between ${lastCommitSha} and ${newCommitSha}: ${errorMsg}`);
+  }
+
+  return { addedFiles, modifiedFiles, deletedFiles };
+}
+

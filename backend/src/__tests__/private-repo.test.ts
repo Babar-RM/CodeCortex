@@ -23,6 +23,7 @@ describe("Private Repository Security Policy (RFC 0010 & Phase 1 Checkpoint)", (
     htmlUrl: "https://github.com/octocat/secret-project",
     isPrivate: true,
     defaultBranch: "main",
+    lastIndexedCommitSha: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };

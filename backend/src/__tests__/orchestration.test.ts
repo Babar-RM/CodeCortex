@@ -12,6 +12,7 @@ vi.mock("../lib/prisma", () => ({
   prisma: {
     connectedRepo: {
       findUnique: vi.fn(),
+      update: vi.fn().mockResolvedValue({}),
     },
     indexingJob: {
       update: vi.fn().mockResolvedValue({}),
@@ -44,6 +45,7 @@ describe("Pipeline Orchestration & Worker Process (RFC 0009)", () => {
     htmlUrl: "https://github.com/octocat/hello-world",
     isPrivate: false,
     defaultBranch: "main",
+    lastIndexedCommitSha: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
