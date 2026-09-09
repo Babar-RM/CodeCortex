@@ -104,8 +104,8 @@ describe("Critic Agent Module (RFC 0015)", () => {
         claimText: "handleAuth calls verifyJwt",
       };
 
-      const isVerified = await verifyClaimAgainstGraph(claim, repoId, mockDriver);
-      expect(isVerified).toBe(true);
+      const result = await verifyClaimAgainstGraph(claim, repoId, mockDriver);
+      expect(result.isVerified).toBe(true);
     });
 
     it("returns false when relationship does not exist in Neo4j graph", async () => {
@@ -116,8 +116,8 @@ describe("Critic Agent Module (RFC 0015)", () => {
         claimText: "handleAuth calls fakeFunction",
       };
 
-      const isVerified = await verifyClaimAgainstGraph(claim, repoId, mockDriver);
-      expect(isVerified).toBe(false);
+      const result = await verifyClaimAgainstGraph(claim, repoId, mockDriver);
+      expect(result.isVerified).toBe(false);
     });
   });
 

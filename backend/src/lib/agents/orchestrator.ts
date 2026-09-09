@@ -6,7 +6,7 @@ import { runExplainerAgent } from "./explainer";
 import { runBugTracerAgent } from "./bug-tracer";
 import { runReviewerAgent } from "./reviewer";
 import { runRefactorerAgent } from "./refactorer";
-import { critiqueDraft, CritiqueResult } from "./critic";
+import { critiqueDraft, CritiqueResult, EvidenceItem } from "./critic";
 import { AgentExecutionResult } from "./agent-loop";
 
 export type AgentStreamEvent =
@@ -17,7 +17,7 @@ export type AgentStreamEvent =
   | { type: "drafting" }
   | { type: "verifying" }
   | { type: "revising"; feedback: string }
-  | { type: "answer"; content: string }
+  | { type: "answer"; content: string; evidence?: EvidenceItem[] }
   | { type: "error"; message: string };
 
 export interface RunMultiAgentPipelineParams {
@@ -38,6 +38,7 @@ export interface PipelineResult {
   criticVerdict: CritiqueResult["verdict"];
   specialistResult: AgentExecutionResult;
   isCached?: boolean;
+  evidence?: EvidenceItem[];
 }
 
 /**
@@ -165,7 +166,7 @@ export async function runMultiAgentPipeline(
     // Step 3: Critic Verification Loop against Neo4j Graph
     notify({ type: "verifying" });
     let currentAnswer = specialistResult.answer;
-    let criticResult: CritiqueResult = { verdict: "approved", answer: currentAnswer, verifiedClaimsCount: 0 };
+    let criticResult: CritiqueResult = { verdict: "approved", answer: currentAnswer, verifiedClaimsCount: 0, evidence: [] };
     const maxRevisions = params.maxRevisionRounds ?? 3;
 
     for (let round = 1; round <= maxRevisions; round++) {
@@ -216,18 +217,21 @@ export async function runMultiAgentPipeline(
       ? currentAnswer
       : (criticResult as { answer: string }).answer || currentAnswer;
 
-    notify({ type: "answer", content: finalAnswerText });
+    const evidenceList: EvidenceItem[] = criticResult.verdict === "approved" ? (criticResult.evidence || []) : [];
+
+    notify({ type: "answer", content: finalAnswerText, evidence: evidenceList });
 
     // Write to InsightCache ONLY if Critic returned "approved" verdict
     if (criticResult.verdict === "approved") {
       try {
+        const referencedNodeIds = evidenceList.map((e) => `${e.filePath}:${e.graphNodeName}`);
         await writeInsightCache({
           connectedRepoId: params.connectedRepoId,
           question: params.question,
           answer: finalAnswerText,
           questionType: plan.type,
           verifiedAtCommitSha: commitSha,
-          referencedNodeIds: [],
+          referencedNodeIds,
         });
       } catch {
         // Cache write errors are caught gracefully
@@ -239,6 +243,7 @@ export async function runMultiAgentPipeline(
       questionType: plan.type,
       criticVerdict: criticResult.verdict,
       specialistResult,
+      evidence: evidenceList,
     };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Pipeline execution failed";

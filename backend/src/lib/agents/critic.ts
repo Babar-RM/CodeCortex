@@ -9,10 +9,20 @@ export interface FactualClaim {
   claimText: string;
 }
 
+export interface EvidenceItem {
+  claim: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  graphNodeType: "Function" | "Class" | "File";
+  graphNodeName: string;
+}
+
 export interface CritiqueResultApproved {
   verdict: "approved";
   answer: string;
   verifiedClaimsCount: number;
+  evidence: EvidenceItem[];
 }
 
 export interface CritiqueResultRevise {
@@ -147,14 +157,19 @@ export async function extractFactualClaims(
   return extractClaimsHeuristically(draftAnswer);
 }
 
+export interface VerifyClaimResult {
+  isVerified: boolean;
+  evidence?: EvidenceItem;
+}
+
 /**
- * Verifies a single factual claim against the Neo4j code graph (RFC 0015)
+ * Verifies a single factual claim against the Neo4j code graph (RFC 0015 & RFC 0019)
  */
 export async function verifyClaimAgainstGraph(
   claim: FactualClaim,
   repoId: string,
   customDriver?: Driver
-): Promise<boolean> {
+): Promise<VerifyClaimResult> {
   const driver = customDriver || getNeo4jDriver();
   let session;
 
@@ -166,22 +181,54 @@ export async function verifyClaimAgainstGraph(
         const res = await session.run(
           `
           MATCH (s:Function { repoId: $repoId, name: $src })-[:CALLS]->(t:Function { repoId: $repoId, name: $tgt })
-          RETURN s
+          RETURN s.filePath AS filePath, s.startLine AS startLine, s.endLine AS endLine
           `,
           { repoId, src: claim.sourceEntity, tgt: claim.targetEntity }
         );
-        return res.records.length > 0;
+        if (res.records.length > 0) {
+          const rec = res.records[0];
+          const startLineVal = rec.get("startLine");
+          const endLineVal = rec.get("endLine");
+          return {
+            isVerified: true,
+            evidence: {
+              claim: claim.claimText,
+              filePath: rec.get("filePath") || claim.filePath || "unknown",
+              startLine: typeof startLineVal?.toNumber === "function" ? startLineVal.toNumber() : (startLineVal || 1),
+              endLine: typeof endLineVal?.toNumber === "function" ? endLineVal.toNumber() : (endLineVal || 1),
+              graphNodeType: "Function",
+              graphNodeName: claim.sourceEntity,
+            },
+          };
+        }
+        return { isVerified: false };
       }
 
       case "INHERITS": {
         const res = await session.run(
           `
           MATCH (c:Class { repoId: $repoId, name: $src })-[:INHERITS]->(p:Class { repoId: $repoId, name: $tgt })
-          RETURN c
+          RETURN c.filePath AS filePath, c.startLine AS startLine, c.endLine AS endLine
           `,
           { repoId, src: claim.sourceEntity, tgt: claim.targetEntity }
         );
-        return res.records.length > 0;
+        if (res.records.length > 0) {
+          const rec = res.records[0];
+          const startLineVal = rec.get("startLine");
+          const endLineVal = rec.get("endLine");
+          return {
+            isVerified: true,
+            evidence: {
+              claim: claim.claimText,
+              filePath: rec.get("filePath") || claim.filePath || "unknown",
+              startLine: typeof startLineVal?.toNumber === "function" ? startLineVal.toNumber() : (startLineVal || 1),
+              endLine: typeof endLineVal?.toNumber === "function" ? endLineVal.toNumber() : (endLineVal || 1),
+              graphNodeType: "Class",
+              graphNodeName: claim.sourceEntity,
+            },
+          };
+        }
+        return { isVerified: false };
       }
 
       case "DEFINES": {
@@ -189,11 +236,29 @@ export async function verifyClaimAgainstGraph(
           `
           MATCH (f:File { repoId: $repoId })-[:DEFINES]->(t { repoId: $repoId, name: $tgt })
           WHERE f.path ENDS WITH $src OR f.path = $src
-          RETURN f
+          RETURN f.path AS filePath, labels(t) AS labels, t.startLine AS startLine, t.endLine AS endLine
           `,
           { repoId, src: claim.sourceEntity, tgt: claim.targetEntity }
         );
-        return res.records.length > 0;
+        if (res.records.length > 0) {
+          const rec = res.records[0];
+          const labels = rec.get("labels") as string[];
+          const isClass = Array.isArray(labels) && labels.includes("Class");
+          const startLineVal = rec.get("startLine");
+          const endLineVal = rec.get("endLine");
+          return {
+            isVerified: true,
+            evidence: {
+              claim: claim.claimText,
+              filePath: rec.get("filePath") || claim.sourceEntity,
+              startLine: typeof startLineVal?.toNumber === "function" ? startLineVal.toNumber() : (startLineVal || 1),
+              endLine: typeof endLineVal?.toNumber === "function" ? endLineVal.toNumber() : (endLineVal || 1),
+              graphNodeType: isClass ? "Class" : "Function",
+              graphNodeName: claim.targetEntity,
+            },
+          };
+        }
+        return { isVerified: false };
       }
 
       case "IMPORTS": {
@@ -201,18 +266,32 @@ export async function verifyClaimAgainstGraph(
           `
           MATCH (f:File { repoId: $repoId })-[:IMPORTS]->(t:File { repoId: $repoId })
           WHERE f.path ENDS WITH $src AND t.path ENDS WITH $tgt
-          RETURN f
+          RETURN f.path AS filePath
           `,
           { repoId, src: claim.sourceEntity, tgt: claim.targetEntity }
         );
-        return res.records.length > 0;
+        if (res.records.length > 0) {
+          const rec = res.records[0];
+          return {
+            isVerified: true,
+            evidence: {
+              claim: claim.claimText,
+              filePath: rec.get("filePath") || claim.sourceEntity,
+              startLine: 1,
+              endLine: 1,
+              graphNodeType: "File",
+              graphNodeName: claim.targetEntity,
+            },
+          };
+        }
+        return { isVerified: false };
       }
 
       default:
-        return false;
+        return { isVerified: false };
     }
   } catch {
-    return false;
+    return { isVerified: false };
   } finally {
     if (session) {
       try {
@@ -225,8 +304,8 @@ export async function verifyClaimAgainstGraph(
 }
 
 /**
- * Main Critic Agent workflow (RFC 0015)
- * Extracts claims, checks each against Neo4j graph, and returns verdict
+ * Main Critic Agent workflow (RFC 0015 & RFC 0019)
+ * Extracts claims, checks each against Neo4j graph, and returns verdict with evidence data
  */
 export async function critiqueDraft(params: CritiqueDraftParams): Promise<CritiqueResult> {
   const revisionRound = params.revisionRound ?? 1;
@@ -240,17 +319,22 @@ export async function critiqueDraft(params: CritiqueDraftParams): Promise<Critiq
       verdict: "approved",
       answer: params.draftAnswer,
       verifiedClaimsCount: 0,
+      evidence: [],
     };
   }
 
-  // Step 2: Verify each claim against Neo4j graph
+  // Step 2: Verify each claim against Neo4j graph and extract evidence
   const failedClaims: FactualClaim[] = [];
+  const evidence: EvidenceItem[] = [];
   let verifiedCount = 0;
 
   for (const claim of claims) {
-    const isVerified = await verifyClaimAgainstGraph(claim, params.connectedRepoId, params.customDriver);
-    if (isVerified) {
+    const checkResult = await verifyClaimAgainstGraph(claim, params.connectedRepoId, params.customDriver);
+    if (checkResult.isVerified) {
       verifiedCount++;
+      if (checkResult.evidence) {
+        evidence.push(checkResult.evidence);
+      }
     } else {
       failedClaims.push(claim);
     }
@@ -262,6 +346,7 @@ export async function critiqueDraft(params: CritiqueDraftParams): Promise<Critiq
       verdict: "approved",
       answer: params.draftAnswer,
       verifiedClaimsCount: verifiedCount,
+      evidence,
     };
   }
 
@@ -285,3 +370,4 @@ export async function critiqueDraft(params: CritiqueDraftParams): Promise<Critiq
     failedClaims,
   };
 }
+
