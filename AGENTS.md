@@ -17,7 +17,7 @@ It is built in five phases, each with a hard checkpoint before the next begins. 
 | 2 | Single non-specialized agent (prove question-in/grounded-answer-out) | ✅ Completed |
 | 3 | Full 6-agent system (Planner, Explainer, Bug-Tracer, Reviewer, Refactorer, Critic) | ✅ Completed |
 
-| 4 | Memory & efficiency (insight cache, incremental re-indexing, evidence display) | ⬜ Not started |
+| 4 | Memory & efficiency (insight cache, incremental re-indexing, evidence display) | ✅ Completed |
 | 5 | Hardening, testing, polish (rate limits, RBAC, logging, automated tests) | ⬜ Not started |
 
 ## Project Goals
