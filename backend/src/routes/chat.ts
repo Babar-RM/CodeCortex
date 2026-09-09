@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/requireAuth";
 import { askSingleAgent, ChatHistoryMessage } from "../lib/agent";
+import { runMultiAgentPipeline, AgentStreamEvent } from "../lib/agents/orchestrator";
 
 export const chatRouter = Router();
 
@@ -165,6 +166,86 @@ chatRouter.post("/messages", async (req: Request, res: Response) => {
     });
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal server error";
+    return res.status(500).json({ error: errorMessage });
+  }
+});
+
+/**
+ * POST /api/chat/messages/stream
+ * Real-time Server-Sent Events (SSE) endpoint streaming intermediate multi-agent pipeline progress (RFC 0016)
+ */
+chatRouter.post("/messages/stream", async (req: Request, res: Response) => {
+  try {
+    const parseResult = PostMessageSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({ error: parseResult.error.issues[0].message });
+    }
+
+    const { chatSessionId, content } = parseResult.data;
+
+    // Verify session ownership
+    const session = await prisma.chatSession.findFirst({
+      where: {
+        id: chatSessionId,
+        userId: req.user!.id,
+      },
+    });
+
+    if (!session) {
+      return res.status(404).json({ error: "Chat session not found or access denied" });
+    }
+
+    // Set SSE Headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    if (typeof res.flushHeaders === "function") {
+      res.flushHeaders();
+    }
+
+    // Helper to send JSON SSE event data
+    const sendSSEEvent = (event: AgentStreamEvent) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    // Save user message
+    await prisma.chatMessage.create({
+      data: {
+        chatSessionId,
+        role: "USER",
+        content,
+      },
+    });
+
+    // Execute multi-agent pipeline with real-time SSE progress streaming
+    const pipelineResult = await runMultiAgentPipeline({
+      connectedRepoId: session.connectedRepoId,
+      question: content,
+      onProgress: sendSSEEvent,
+    });
+
+    // Save assistant reply message
+    await prisma.chatMessage.create({
+      data: {
+        chatSessionId,
+        role: "ASSISTANT",
+        content: pipelineResult.answer,
+      },
+    });
+
+    // Update session updatedAt timestamp
+    await prisma.chatSession.update({
+      where: { id: chatSessionId },
+      data: { updatedAt: new Date() },
+    });
+
+    return res.end();
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Internal server error";
+    if (res.headersSent) {
+      res.write(`data: ${JSON.stringify({ type: "error", message: errorMessage })}\n\n`);
+      return res.end();
+    }
     return res.status(500).json({ error: errorMessage });
   }
 });

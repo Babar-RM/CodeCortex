@@ -51,6 +51,6 @@ curl http://localhost:4000/health
 - [x] **Phase 0**: Foundation (Auth, Prisma Postgres Schema, Repo-Connection API Routes)
 - [x] **Phase 1**: Ingestion Pipeline (Shallow Clone $\rightarrow$ tree-sitter AST Parse $\rightarrow$ Neo4j Graph $\rightarrow$ pgvector Embeddings $\rightarrow$ BullMQ Orchestration)
 - [x] **Phase 2**: Single Non-Specialized Agent (RFC 0011 Hybrid Retrieval + RFC 0012 Single-Agent RAG Engine & Chat Persistence REST API)
-- [ ] **Phase 3**: Full 6-Agent System (Planner, Explainer, Bug-Tracer, Reviewer, Refactorer, Critic)
+- [x] **Phase 3**: Full 6-Agent System (Planner, Explainer, Bug-Tracer, Reviewer, Refactorer, Critic + SSE Step Streaming)
 - [ ] **Phase 4**: Memory & Efficiency (Insight cache, incremental re-indexing, evidence display)
 - [ ] **Phase 5**: Hardening, Testing & Production Polish
