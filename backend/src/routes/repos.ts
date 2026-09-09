@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/requireAuth";
+import { rateLimitUser } from "../middleware/rateLimit";
 import { prisma } from "../lib/prisma";
 import { indexRepoQueue } from "../jobs/queue";
 
@@ -76,7 +77,10 @@ reposRouter.get("/github", async (req: Request, res: Response) => {
  * POST /api/repos
  * Validates repo payload, upserts ConnectedRepo, and creates a PENDING IndexingJob.
  */
-reposRouter.post("/", async (req: Request, res: Response) => {
+reposRouter.post(
+  "/",
+  rateLimitUser({ action: "index_repo", maxRequests: 5, windowSeconds: 3600 }),
+  async (req: Request, res: Response) => {
   const parseResult = connectRepoSchema.safeParse(req.body);
 
   if (!parseResult.success) {

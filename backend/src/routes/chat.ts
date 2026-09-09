@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/requireAuth";
+import { rateLimitUser, checkTokenBudget } from "../middleware/rateLimit";
 import { askSingleAgent, ChatHistoryMessage } from "../lib/agent";
 import { runMultiAgentPipeline, AgentStreamEvent } from "../lib/agents/orchestrator";
 
@@ -95,160 +96,184 @@ chatRouter.get("/sessions", async (req: Request, res: Response) => {
  * POST /api/chat/messages
  * Post a user message, trigger single-agent LLM retrieval & completion, save assistant reply, return both
  */
-chatRouter.post("/messages", async (req: Request, res: Response) => {
-  try {
-    const parseResult = PostMessageSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      return res.status(400).json({ error: parseResult.error.issues[0].message });
+chatRouter.post(
+  "/messages",
+  rateLimitUser({ action: "ask_question", maxRequests: 30, windowSeconds: 3600 }),
+  async (req: Request, res: Response) => {
+    try {
+      const parseResult = PostMessageSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: parseResult.error.issues[0].message });
+      }
+
+      const { chatSessionId, content } = parseResult.data;
+
+      // Verify daily token budget (RFC 0020)
+      const tokenCheck = await checkTokenBudget(req.user!.id);
+      if (!tokenCheck.allowed) {
+        return res.status(429).json({
+          error: `Daily token budget of ${tokenCheck.dailyCap} tokens exceeded for user. Current usage: ${tokenCheck.currentUsage} tokens. Budget resets at midnight UTC.`,
+        });
+      }
+
+      // Verify session ownership
+      const session = await prisma.chatSession.findFirst({
+        where: {
+          id: chatSessionId,
+          userId: req.user!.id,
+        },
+      });
+
+      if (!session) {
+        return res.status(404).json({ error: "Chat session not found or access denied" });
+      }
+
+      // Save user message
+      const userMessage = await prisma.chatMessage.create({
+        data: {
+          chatSessionId,
+          role: "USER",
+          content,
+        },
+      });
+
+      // Fetch prior messages as chat history
+      const previousMessages = await prisma.chatMessage.findMany({
+        where: { chatSessionId },
+        orderBy: { createdAt: "asc" },
+      });
+
+      const chatHistory: ChatHistoryMessage[] = previousMessages
+        .filter((m) => m.id !== userMessage.id)
+        .map((m) => ({
+          role: m.role === "USER" ? "user" : "assistant",
+          content: m.content,
+        }));
+
+      // Trigger single-agent LLM response
+      const agentResult = await askSingleAgent({
+        connectedRepoId: session.connectedRepoId,
+        question: content,
+        chatHistory,
+      });
+
+      // Save assistant message
+      const assistantMessage = await prisma.chatMessage.create({
+        data: {
+          chatSessionId,
+          role: "ASSISTANT",
+          content: agentResult.answer,
+        },
+      });
+
+      // Update session updatedAt timestamp
+      await prisma.chatSession.update({
+        where: { id: chatSessionId },
+        data: { updatedAt: new Date() },
+      });
+
+      return res.status(201).json({
+        userMessage,
+        assistantMessage,
+      });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Internal server error";
+      return res.status(500).json({ error: errorMessage });
     }
-
-    const { chatSessionId, content } = parseResult.data;
-
-    // Verify session ownership
-    const session = await prisma.chatSession.findFirst({
-      where: {
-        id: chatSessionId,
-        userId: req.user!.id,
-      },
-    });
-
-    if (!session) {
-      return res.status(404).json({ error: "Chat session not found or access denied" });
-    }
-
-    // Save user message
-    const userMessage = await prisma.chatMessage.create({
-      data: {
-        chatSessionId,
-        role: "USER",
-        content,
-      },
-    });
-
-    // Fetch prior messages as chat history
-    const previousMessages = await prisma.chatMessage.findMany({
-      where: { chatSessionId },
-      orderBy: { createdAt: "asc" },
-    });
-
-    const chatHistory: ChatHistoryMessage[] = previousMessages
-      .filter((m) => m.id !== userMessage.id)
-      .map((m) => ({
-        role: m.role === "USER" ? "user" : "assistant",
-        content: m.content,
-      }));
-
-    // Trigger single-agent LLM response
-    const agentResult = await askSingleAgent({
-      connectedRepoId: session.connectedRepoId,
-      question: content,
-      chatHistory,
-    });
-
-    // Save assistant message
-    const assistantMessage = await prisma.chatMessage.create({
-      data: {
-        chatSessionId,
-        role: "ASSISTANT",
-        content: agentResult.answer,
-      },
-    });
-
-    // Update session updatedAt timestamp
-    await prisma.chatSession.update({
-      where: { id: chatSessionId },
-      data: { updatedAt: new Date() },
-    });
-
-    return res.status(201).json({
-      userMessage,
-      assistantMessage,
-    });
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : "Internal server error";
-    return res.status(500).json({ error: errorMessage });
   }
-});
+);
 
 /**
  * POST /api/chat/messages/stream
  * Real-time Server-Sent Events (SSE) endpoint streaming intermediate multi-agent pipeline progress (RFC 0016)
  */
-chatRouter.post("/messages/stream", async (req: Request, res: Response) => {
-  try {
-    const parseResult = PostMessageSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      return res.status(400).json({ error: parseResult.error.issues[0].message });
-    }
+chatRouter.post(
+  "/messages/stream",
+  rateLimitUser({ action: "ask_question", maxRequests: 30, windowSeconds: 3600 }),
+  async (req: Request, res: Response) => {
+    try {
+      const parseResult = PostMessageSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: parseResult.error.issues[0].message });
+      }
 
-    const { chatSessionId, content } = parseResult.data;
+      const { chatSessionId, content } = parseResult.data;
 
-    // Verify session ownership
-    const session = await prisma.chatSession.findFirst({
-      where: {
-        id: chatSessionId,
-        userId: req.user!.id,
-      },
-    });
+      // Verify daily token budget (RFC 0020)
+      const tokenCheck = await checkTokenBudget(req.user!.id);
+      if (!tokenCheck.allowed) {
+        return res.status(429).json({
+          error: `Daily token budget of ${tokenCheck.dailyCap} tokens exceeded for user. Current usage: ${tokenCheck.currentUsage} tokens. Budget resets at midnight UTC.`,
+        });
+      }
 
-    if (!session) {
-      return res.status(404).json({ error: "Chat session not found or access denied" });
-    }
+      // Verify session ownership
+      const session = await prisma.chatSession.findFirst({
+        where: {
+          id: chatSessionId,
+          userId: req.user!.id,
+        },
+      });
 
-    // Set SSE Headers
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    if (typeof res.flushHeaders === "function") {
-      res.flushHeaders();
-    }
+      if (!session) {
+        return res.status(404).json({ error: "Chat session not found or access denied" });
+      }
 
-    // Helper to send JSON SSE event data
-    const sendSSEEvent = (event: AgentStreamEvent) => {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
-    };
+      // Set SSE Headers
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      if (typeof res.flushHeaders === "function") {
+        res.flushHeaders();
+      }
 
-    // Save user message
-    await prisma.chatMessage.create({
-      data: {
-        chatSessionId,
-        role: "USER",
-        content,
-      },
-    });
+      // Helper to send JSON SSE event data
+      const sendSSEEvent = (event: AgentStreamEvent) => {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      };
 
-    // Execute multi-agent pipeline with real-time SSE progress streaming
-    const pipelineResult = await runMultiAgentPipeline({
-      connectedRepoId: session.connectedRepoId,
-      question: content,
-      onProgress: sendSSEEvent,
-    });
+      // Save user message
+      await prisma.chatMessage.create({
+        data: {
+          chatSessionId,
+          role: "USER",
+          content,
+        },
+      });
 
-    // Save assistant reply message
-    await prisma.chatMessage.create({
-      data: {
-        chatSessionId,
-        role: "ASSISTANT",
-        content: pipelineResult.answer,
-      },
-    });
+      // Execute multi-agent pipeline with real-time SSE progress streaming
+      const pipelineResult = await runMultiAgentPipeline({
+        connectedRepoId: session.connectedRepoId,
+        question: content,
+        onProgress: sendSSEEvent,
+      });
 
-    // Update session updatedAt timestamp
-    await prisma.chatSession.update({
-      where: { id: chatSessionId },
-      data: { updatedAt: new Date() },
-    });
+      // Save assistant reply message
+      await prisma.chatMessage.create({
+        data: {
+          chatSessionId,
+          role: "ASSISTANT",
+          content: pipelineResult.answer,
+        },
+      });
 
-    return res.end();
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : "Internal server error";
-    if (res.headersSent) {
-      res.write(`data: ${JSON.stringify({ type: "error", message: errorMessage })}\n\n`);
+      // Update session updatedAt timestamp
+      await prisma.chatSession.update({
+        where: { id: chatSessionId },
+        data: { updatedAt: new Date() },
+      });
+
       return res.end();
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Internal server error";
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ type: "error", message: errorMessage })}\n\n`);
+        return res.end();
+      }
+      return res.status(500).json({ error: errorMessage });
     }
-    return res.status(500).json({ error: errorMessage });
   }
-});
+);
 
 /**
  * GET /api/chat/sessions/:id/messages
