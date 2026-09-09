@@ -47,6 +47,7 @@ model ConnectedRepo {
   indexingJobs   IndexingJob[]
   chatSessions   ChatSession[]
   codeEmbeddings CodeEmbedding[]
+  insightCaches  InsightCache[]
 
   @@unique([userId, fullName])
   @@map("connected_repos")
@@ -106,4 +107,22 @@ model CodeEmbedding {
   @@index([connectedRepoId])
   @@map("code_embeddings")
 }
+
+model InsightCache {
+  id                  String        @id @default(cuid())
+  connectedRepoId     String        @map("connected_repo_id")
+  connectedRepo       ConnectedRepo @relation(fields: [connectedRepoId], references: [id], onDelete: Cascade)
+  question            String        @db.Text
+  answer              String        @db.Text
+  questionType        String        @map("question_type")
+  verifiedAtCommitSha String        @map("verified_at_commit_sha")
+  referencedNodeIds   String[]      @map("referenced_node_ids")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  lastServedAt        DateTime      @default(now()) @map("last_served_at")
+  hitCount            Int           @default(0) @map("hit_count")
+
+  @@index([connectedRepoId])
+  @@map("insight_cache")
+}
+
 
