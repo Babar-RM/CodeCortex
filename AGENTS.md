@@ -18,7 +18,7 @@ It is built in five phases, each with a hard checkpoint before the next begins. 
 | 3 | Full 6-agent system (Planner, Explainer, Bug-Tracer, Reviewer, Refactorer, Critic) | ✅ Completed |
 
 | 4 | Memory & efficiency (insight cache, incremental re-indexing, evidence display) | ✅ Completed |
-| 5 | Hardening, testing, polish (rate limits, RBAC, logging, automated tests) | ⬜ Not started |
+| 5 | Hardening, testing, polish (rate limits, RBAC, logging, automated tests) | ✅ Completed |
 
 ## Project Goals
 
