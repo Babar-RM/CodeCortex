@@ -14,6 +14,7 @@ export const connectRepoSchema = z.object({
   htmlUrl: z.string().url(),
   isPrivate: z.boolean().default(false),
   defaultBranch: z.string().default("main"),
+  installationId: z.string().optional(),
 });
 
 export const reposRouter = Router();
@@ -90,7 +91,7 @@ reposRouter.post(
     });
   }
 
-  const { fullName, htmlUrl, isPrivate, defaultBranch } = parseResult.data;
+  const { fullName, htmlUrl, isPrivate, defaultBranch, installationId } = parseResult.data;
   const userId = req.user!.id;
 
   try {
@@ -105,6 +106,7 @@ reposRouter.post(
         htmlUrl,
         isPrivate,
         defaultBranch,
+        ...(installationId ? { installationId } : {}),
       },
       create: {
         userId,
@@ -112,6 +114,7 @@ reposRouter.post(
         htmlUrl,
         isPrivate,
         defaultBranch,
+        installationId,
       },
     });
 

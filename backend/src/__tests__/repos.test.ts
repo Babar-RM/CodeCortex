@@ -14,6 +14,10 @@ vi.mock("@auth/express", async () => {
   };
 });
 
+vi.mock("../middleware/rateLimit", () => ({
+  rateLimitUser: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
 vi.mock("../lib/prisma", () => ({
   prisma: {
     user: {

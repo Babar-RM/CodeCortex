@@ -43,6 +43,7 @@ model ConnectedRepo {
   isPrivate     Boolean       @default(false) @map("is_private")
   defaultBranch        String        @default("main") @map("default_branch")
   lastIndexedCommitSha String?       @map("last_indexed_commit_sha")
+  installationId       String?       @map("installation_id")
   createdAt            DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
   indexingJobs   IndexingJob[]

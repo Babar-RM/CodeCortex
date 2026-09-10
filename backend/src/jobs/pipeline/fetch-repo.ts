@@ -7,6 +7,8 @@ export interface FetchRepoParams {
   htmlUrl: string;
   defaultBranch?: string;
   isPrivate?: boolean;
+  installationId?: string;
+  accessToken?: string;
 }
 
 export interface FetchedFile {
@@ -84,12 +86,6 @@ export const EXCLUDED_EXACT_FILENAMES = new Set([
 ]);
 
 export async function fetchRepo(params: FetchRepoParams): Promise<FetchRepoResult> {
-  if (params.isPrivate) {
-    throw new Error(
-      "Private repositories are not supported in Phase 1 ingestion. GitHub access tokens are not persisted to database storage for security."
-    );
-  }
-
   const baseTmpDir = path.join(process.cwd(), "tmp");
   if (!fs.existsSync(baseTmpDir)) {
     await fs.promises.mkdir(baseTmpDir, { recursive: true });
@@ -107,7 +103,12 @@ export async function fetchRepo(params: FetchRepoParams): Promise<FetchRepoResul
     cloneArgs.push("--branch", params.defaultBranch);
   }
 
-  await git.clone(params.htmlUrl, workspacePath, cloneArgs);
+  let cloneUrl = params.htmlUrl;
+  if (params.accessToken && cloneUrl.startsWith("https://")) {
+    cloneUrl = cloneUrl.replace("https://", `https://x-access-token:${params.accessToken}@`);
+  }
+
+  await git.clone(cloneUrl, workspacePath, cloneArgs);
 
   const gitWorkspace = simpleGit(workspacePath);
   let commitSha = "unknown";

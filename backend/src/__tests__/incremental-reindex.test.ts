@@ -62,6 +62,7 @@ describe("Phase 4 Step 18 — Incremental Re-Indexing (RFC 0018)", () => {
     fullName: "octocat/hello-world",
     htmlUrl: "https://github.com/octocat/hello-world",
     isPrivate: false,
+    installationId: null,
     defaultBranch: "main",
     lastIndexedCommitSha: "sha_v1",
     createdAt: new Date(),

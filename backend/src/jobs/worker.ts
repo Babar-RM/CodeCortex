@@ -5,6 +5,7 @@ import { parseFiles } from "./pipeline/parse-files";
 import { buildGraph } from "./pipeline/build-graph";
 import { generateEmbeddings } from "./pipeline/generate-embeddings";
 import { cleanupDeletedFiles } from "./pipeline/incremental-cleanup";
+import { getInstallationAccessToken } from "../lib/github-app";
 import { prisma } from "../lib/prisma";
 import { connection, IndexRepoJobPayload } from "./queue";
 
@@ -42,12 +43,19 @@ export async function processIndexingJob(job: Job<IndexRepoJobPayload>): Promise
   let workspacePath = "";
 
   try {
-    // Stage 1: Fetch Repo (Step 5)
+    let accessToken: string | undefined;
+    if (repo.installationId) {
+      accessToken = await getInstallationAccessToken({ installationId: repo.installationId });
+    }
+
+    // Stage 1: Fetch Repo (Step 5 & RFC 0021)
     const fetchResult = await fetchRepo({
       indexingJobId,
       htmlUrl: repo.htmlUrl,
       defaultBranch: repo.defaultBranch,
       isPrivate: repo.isPrivate,
+      installationId: repo.installationId ?? undefined,
+      accessToken,
     });
     workspacePath = fetchResult.workspacePath;
 

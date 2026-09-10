@@ -1,13 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import fs from "fs";
 import { fetchRepo } from "../jobs/pipeline/fetch-repo";
 import { processIndexingJob } from "../jobs/worker";
+import { getInstallationAccessToken } from "../lib/github-app";
 import { prisma } from "../lib/prisma";
 import { Job } from "bullmq";
+import simpleGit from "simple-git";
+
+vi.mock("simple-git");
 
 vi.mock("../lib/prisma", () => ({
   prisma: {
     connectedRepo: {
       findUnique: vi.fn(),
+      update: vi.fn().mockResolvedValue({}),
     },
     indexingJob: {
       update: vi.fn().mockResolvedValue({}),
@@ -15,13 +21,26 @@ vi.mock("../lib/prisma", () => ({
   },
 }));
 
-describe("Private Repository Security Policy (RFC 0010 & Phase 1 Checkpoint)", () => {
+vi.mock("../jobs/pipeline/parse-files", () => ({
+  parseFiles: vi.fn().mockResolvedValue({ symbolFacts: [] }),
+}));
+
+vi.mock("../jobs/pipeline/build-graph", () => ({
+  buildGraph: vi.fn().mockResolvedValue({ nodesCreated: 0, relationshipsCreated: 0 }),
+}));
+
+vi.mock("../jobs/pipeline/generate-embeddings", () => ({
+  generateEmbeddings: vi.fn().mockResolvedValue({ embeddingsStored: 0 }),
+}));
+
+describe("Private Repository Access & Installation Token Policy (RFC 0021)", () => {
   const mockPrivateRepo = {
     id: "repo_private_123",
     userId: "user_123",
     fullName: "octocat/secret-project",
     htmlUrl: "https://github.com/octocat/secret-project",
     isPrivate: true,
+    installationId: "inst_777",
     defaultBranch: "main",
     lastIndexedCommitSha: null,
     createdAt: new Date(),
@@ -38,33 +57,52 @@ describe("Private Repository Security Policy (RFC 0010 & Phase 1 Checkpoint)", (
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    const mockGitInstance = {
+      clone: vi.fn().mockImplementation(async (_url: string, targetPath: string) => {
+        await fs.promises.mkdir(targetPath, { recursive: true });
+      }),
+      revparse: vi.fn().mockResolvedValue("abc123def456"),
+      raw: vi.fn().mockResolvedValue(""),
+    };
+    vi.mocked(simpleGit).mockReturnValue(mockGitInstance as unknown as ReturnType<typeof simpleGit>);
   });
 
-  it("should throw an explicit security error in fetchRepo when isPrivate is true", async () => {
-    await expect(
-      fetchRepo({
-        indexingJobId: "job_priv_999",
-        htmlUrl: mockPrivateRepo.htmlUrl,
-        isPrivate: true,
-      })
-    ).rejects.toThrow(
-      "Private repositories are not supported in Phase 1 ingestion. GitHub access tokens are not persisted to database storage for security."
+  it("should generate synthetic installation token when env variables are not set", async () => {
+    const token = await getInstallationAccessToken({ installationId: "inst_777" });
+    expect(token).toBe("ghs_synthetic_inst_777");
+  });
+
+  it("should construct authenticated clone URL in fetchRepo when accessToken is provided", async () => {
+    const gitMock = simpleGit();
+    const result = await fetchRepo({
+      indexingJobId: "job_priv_999",
+      htmlUrl: mockPrivateRepo.htmlUrl,
+      isPrivate: true,
+      defaultBranch: mockPrivateRepo.defaultBranch,
+      accessToken: "ghs_test_token_123",
+    });
+
+    expect(gitMock.clone).toHaveBeenCalledWith(
+      "https://x-access-token:ghs_test_token_123@github.com/octocat/secret-project",
+      expect.stringContaining("workspace-job_priv_999"),
+      ["--depth", "1", "--branch", "main"]
     );
+    expect(result.commitSha).toBe("abc123def456");
   });
 
-  it("should update IndexingJob status to FAILED with explicit message when a private repo is queued", async () => {
+  it("should process indexing job for private repo using installation token without erroring", async () => {
     vi.mocked(prisma.connectedRepo.findUnique).mockResolvedValue(mockPrivateRepo);
 
-    await expect(processIndexingJob(mockJob)).rejects.toThrow(
-      "Private repositories are not supported in Phase 1 ingestion"
-    );
+    await processIndexingJob(mockJob);
 
     expect(prisma.indexingJob.update).toHaveBeenCalledWith({
       where: { id: "job_priv_999" },
       data: expect.objectContaining({
-        status: "FAILED",
-        errorMessage: expect.stringContaining("Private repositories are not supported in Phase 1 ingestion"),
+        status: "SUCCEEDED",
+        progressMessage: "Indexing completed successfully.",
       }),
     });
   });
 });
+

@@ -59,14 +59,17 @@ describe("Pipeline Stage 1: fetchRepo (RFC 0005 & RFC 0010)", () => {
     }
   });
 
-  it("should throw an explicit security error when attempting to fetch a private repo", async () => {
-    await expect(
-      fetchRepo({
-        indexingJobId: testJobId,
-        htmlUrl: "https://github.com/octocat/private-repo",
-        isPrivate: true,
-      })
-    ).rejects.toThrow("Private repositories are not supported in Phase 1 ingestion");
+  it("should shallow clone private repo with authenticated URL when accessToken is provided (RFC 0021)", async () => {
+    const result = await fetchRepo({
+      indexingJobId: testJobId,
+      htmlUrl: "https://github.com/octocat/private-repo",
+      isPrivate: true,
+      accessToken: "ghs_test_token_123",
+    });
+
+    createdWorkspace = result.workspacePath;
+    expect(result.workspacePath).toContain(`workspace-${testJobId}`);
+    expect(result.commitSha).toBe("abc123def456789");
   });
 
   it("should shallow clone public repo and filter out excluded files and directories", async () => {
