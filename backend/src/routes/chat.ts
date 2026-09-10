@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/requireAuth";
 import { rateLimitUser, checkTokenBudget } from "../middleware/rateLimit";
+import { generateCorrelationId } from "../lib/logging";
 import { askSingleAgent, ChatHistoryMessage } from "../lib/agent";
 import { runMultiAgentPipeline, AgentStreamEvent } from "../lib/agents/orchestrator";
 
@@ -219,6 +220,9 @@ chatRouter.post(
         return res.status(404).json({ error: "Chat session not found or access denied" });
       }
 
+      const correlationId = generateCorrelationId();
+      res.setHeader("X-Correlation-Id", correlationId);
+
       // Set SSE Headers
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
@@ -241,10 +245,12 @@ chatRouter.post(
         },
       });
 
-      // Execute multi-agent pipeline with real-time SSE progress streaming
+      // Execute multi-agent pipeline with real-time SSE progress streaming and trace logging (RFC 0022)
       const pipelineResult = await runMultiAgentPipeline({
         connectedRepoId: session.connectedRepoId,
         question: content,
+        correlationId,
+        userId: req.user!.id,
         onProgress: sendSSEEvent,
       });
 

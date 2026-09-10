@@ -5,6 +5,7 @@ export interface SpecialistParams {
   question: string;
   connectedRepoId: string;
   maxIterations?: number;
+  correlationId?: string;
   customLlmCompletion?: (prompt: string) => Promise<string>;
   customDriver?: Driver;
 }
@@ -35,6 +36,7 @@ export async function runExplainerAgent(params: SpecialistParams): Promise<Agent
     connectedRepoId: params.connectedRepoId,
     availableTools: EXPLAINER_TOOLS,
     maxIterations: params.maxIterations,
+    correlationId: params.correlationId,
     customLlmCompletion: params.customLlmCompletion,
     customDriver: params.customDriver,
   });

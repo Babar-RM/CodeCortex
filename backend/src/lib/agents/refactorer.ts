@@ -27,6 +27,7 @@ export async function runRefactorerAgent(params: SpecialistParams): Promise<Agen
     connectedRepoId: params.connectedRepoId,
     availableTools: REFACTORER_TOOLS,
     maxIterations: params.maxIterations,
+    correlationId: params.correlationId,
     customLlmCompletion: params.customLlmCompletion,
     customDriver: params.customDriver,
   });

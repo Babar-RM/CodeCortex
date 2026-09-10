@@ -1,5 +1,6 @@
 import { Driver } from "neo4j-driver";
 import { executeToolCall, ToolResult } from "./tools";
+import { logAgentTrace } from "../logging";
 
 export interface ToolCallingAgentParams {
   specialistName: string;
@@ -8,6 +9,7 @@ export interface ToolCallingAgentParams {
   connectedRepoId: string;
   availableTools: string[];
   maxIterations?: number;
+  correlationId?: string;
   customLlmCompletion?: (prompt: string) => Promise<string>;
   customDriver?: Driver;
 }
@@ -132,6 +134,15 @@ export async function runToolCallingAgent(
     const toolRequest = parseToolCallRequest(llmOutput);
 
     if (toolRequest && params.availableTools.includes(toolRequest.toolName)) {
+      if (params.correlationId) {
+        logAgentTrace({
+          correlationId: params.correlationId,
+          connectedRepoId: params.connectedRepoId,
+          step: "tool_call",
+          detail: { specialist: params.specialistName, tool: toolRequest.toolName, args: toolRequest.args, iteration },
+        });
+      }
+
       // Execute tool
       const toolResult = await executeToolCall(
         toolRequest.toolName,
@@ -139,6 +150,19 @@ export async function runToolCallingAgent(
         params.connectedRepoId,
         params.customDriver
       );
+
+      if (params.correlationId) {
+        logAgentTrace({
+          correlationId: params.correlationId,
+          connectedRepoId: params.connectedRepoId,
+          step: "tool_result",
+          detail: {
+            specialist: params.specialistName,
+            tool: toolRequest.toolName,
+            summary: toolResult.result.split("\n")[0] || "Executed tool call",
+          },
+        });
+      }
 
       toolCallsExecuted.push(toolResult);
       conversationTranscript.push(`ASSISTANT (Tool Call): TOOL: ${toolRequest.toolName}`);
@@ -152,6 +176,19 @@ export async function runToolCallingAgent(
 
   // If iteration cap was reached without final answer
   if (!finalAnswer) {
+    if (params.correlationId) {
+      logAgentTrace({
+        correlationId: params.correlationId,
+        connectedRepoId: params.connectedRepoId,
+        step: "cap_hit",
+        detail: {
+          capType: "tool_iterations",
+          maxIterations,
+          specialist: params.specialistName,
+        },
+      });
+    }
+
     const lastResult = toolCallsExecuted.length > 0 ? toolCallsExecuted[toolCallsExecuted.length - 1].result : "";
     finalAnswer = `[Note: Specialist investigation reached the maximum iteration cap of ${maxIterations}.]\n${lastResult}\nBased on gathered facts, here is the best available answer to your question.`;
   }

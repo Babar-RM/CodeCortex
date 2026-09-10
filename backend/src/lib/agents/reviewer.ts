@@ -27,6 +27,7 @@ export async function runReviewerAgent(params: SpecialistParams): Promise<AgentE
     connectedRepoId: params.connectedRepoId,
     availableTools: REVIEWER_TOOLS,
     maxIterations: params.maxIterations,
+    correlationId: params.correlationId,
     customLlmCompletion: params.customLlmCompletion,
     customDriver: params.customDriver,
   });

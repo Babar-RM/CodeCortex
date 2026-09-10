@@ -1,6 +1,7 @@
 import { Driver } from "neo4j-driver";
 import { prisma } from "../prisma";
 import { checkInsightCache, writeInsightCache } from "../insight-cache";
+import { logAgentTrace, generateCorrelationId } from "../logging";
 import { planQuestion, QuestionType } from "./planner";
 import { runExplainerAgent } from "./explainer";
 import { runBugTracerAgent } from "./bug-tracer";
@@ -23,6 +24,8 @@ export type AgentStreamEvent =
 export interface RunMultiAgentPipelineParams {
   connectedRepoId: string;
   question: string;
+  correlationId?: string;
+  userId?: string;
   onProgress?: (event: AgentStreamEvent) => void;
   maxIterations?: number;
   maxRevisionRounds?: number;
@@ -49,6 +52,10 @@ export interface PipelineResult {
 export async function runMultiAgentPipeline(
   params: RunMultiAgentPipelineParams
 ): Promise<PipelineResult> {
+  const correlationId = params.correlationId || generateCorrelationId();
+  const connectedRepoId = params.connectedRepoId;
+  const userId = params.userId;
+
   const notify = (event: AgentStreamEvent) => {
     if (params.onProgress) {
       try {
@@ -64,7 +71,7 @@ export async function runMultiAgentPipeline(
     let commitSha = "HEAD";
     try {
       const latestJob = await prisma.indexingJob.findFirst({
-        where: { connectedRepoId: params.connectedRepoId, status: "SUCCEEDED" },
+        where: { connectedRepoId, status: "SUCCEEDED" },
         orderBy: { createdAt: "desc" },
         select: { commitSha: true },
       });
@@ -79,7 +86,7 @@ export async function runMultiAgentPipeline(
     if (!params.skipCache) {
       try {
         const cacheResult = await checkInsightCache({
-          connectedRepoId: params.connectedRepoId,
+          connectedRepoId,
           question: params.question,
           verifiedAtCommitSha: commitSha,
           similarityThreshold: params.similarityThreshold,
@@ -87,6 +94,21 @@ export async function runMultiAgentPipeline(
 
         if (cacheResult.hit && cacheResult.cachedAnswer) {
           const cachedQuestionType = (cacheResult.questionType as QuestionType) || "explain";
+          logAgentTrace({
+            correlationId,
+            connectedRepoId,
+            userId,
+            step: "planned",
+            detail: { questionType: cachedQuestionType, reasoning: "Cached verified insight found" },
+          });
+          logAgentTrace({
+            correlationId,
+            connectedRepoId,
+            userId,
+            step: "approved",
+            detail: { isCached: true },
+          });
+
           notify({ type: "planned", questionType: cachedQuestionType, reasoning: "Cached verified insight found" });
           notify({ type: "answer", content: cacheResult.cachedAnswer });
           return {
@@ -112,8 +134,16 @@ export async function runMultiAgentPipeline(
     notify({ type: "planning" });
     const plan = await planQuestion({
       question: params.question,
-      connectedRepoId: params.connectedRepoId,
+      connectedRepoId,
       customLlmCompletion: params.customLlmCompletion,
+    });
+
+    logAgentTrace({
+      correlationId,
+      connectedRepoId,
+      userId,
+      step: "planned",
+      detail: { questionType: plan.type, reasoning: plan.reasoning },
     });
 
     notify({
@@ -126,7 +156,8 @@ export async function runMultiAgentPipeline(
     let specialistResult: AgentExecutionResult;
     const specialistParams = {
       question: params.question,
-      connectedRepoId: params.connectedRepoId,
+      connectedRepoId,
+      correlationId,
       maxIterations: params.maxIterations,
       customLlmCompletion: params.customLlmCompletion,
       customDriver: params.customDriver,
@@ -161,6 +192,14 @@ export async function runMultiAgentPipeline(
       });
     }
 
+    logAgentTrace({
+      correlationId,
+      connectedRepoId,
+      userId,
+      step: "draft",
+      detail: { specialist: specialistResult.specialistName, toolCallsCount: specialistResult.toolCallsExecuted.length },
+    });
+
     notify({ type: "drafting" });
 
     // Step 3: Critic Verification Loop against Neo4j Graph
@@ -170,9 +209,17 @@ export async function runMultiAgentPipeline(
     const maxRevisions = params.maxRevisionRounds ?? 3;
 
     for (let round = 1; round <= maxRevisions; round++) {
+      logAgentTrace({
+        correlationId,
+        connectedRepoId,
+        userId,
+        step: "critic_check",
+        detail: { round, maxRevisionRounds: maxRevisions },
+      });
+
       criticResult = await critiqueDraft({
         draftAnswer: currentAnswer,
-        connectedRepoId: params.connectedRepoId,
+        connectedRepoId,
         question: params.question,
         revisionRound: round,
         maxRevisionRounds: maxRevisions,
@@ -181,10 +228,29 @@ export async function runMultiAgentPipeline(
       });
 
       if (criticResult.verdict === "approved") {
+        logAgentTrace({
+          correlationId,
+          connectedRepoId,
+          userId,
+          step: "approved",
+          detail: {
+            round,
+            verifiedClaimsCount: criticResult.verifiedClaimsCount,
+            evidenceCount: (criticResult.evidence || []).length,
+          },
+        });
         break;
       }
 
       if (criticResult.verdict === "revise") {
+        logAgentTrace({
+          correlationId,
+          connectedRepoId,
+          userId,
+          step: "revise",
+          detail: { feedback: criticResult.feedback, round },
+        });
+
         notify({ type: "revising", feedback: criticResult.feedback });
         // Trigger revision pass with specialist
         const revisedParams = {
@@ -208,6 +274,23 @@ export async function runMultiAgentPipeline(
         }
         currentAnswer = specialistResult.answer;
       } else if (criticResult.verdict === "unverifiable") {
+        logAgentTrace({
+          correlationId,
+          connectedRepoId,
+          userId,
+          step: "cap_hit",
+          detail: {
+            capType: "critic_revisions",
+            maxRevisionRounds: maxRevisions,
+          },
+        });
+        logAgentTrace({
+          correlationId,
+          connectedRepoId,
+          userId,
+          step: "unverifiable",
+          detail: { caveat: criticResult.caveat, round },
+        });
         currentAnswer = `${currentAnswer}\n\n${criticResult.caveat}`;
         break;
       }
@@ -226,7 +309,7 @@ export async function runMultiAgentPipeline(
       try {
         const referencedNodeIds = evidenceList.map((e) => `${e.filePath}:${e.graphNodeName}`);
         await writeInsightCache({
-          connectedRepoId: params.connectedRepoId,
+          connectedRepoId,
           question: params.question,
           answer: finalAnswerText,
           questionType: plan.type,

@@ -27,6 +27,7 @@ export async function runBugTracerAgent(params: SpecialistParams): Promise<Agent
     connectedRepoId: params.connectedRepoId,
     availableTools: BUG_TRACER_TOOLS,
     maxIterations: params.maxIterations,
+    correlationId: params.correlationId,
     customLlmCompletion: params.customLlmCompletion,
     customDriver: params.customDriver,
   });
