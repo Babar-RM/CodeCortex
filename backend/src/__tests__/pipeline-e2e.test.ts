@@ -49,28 +49,28 @@ describe("Phase 5 Step 23: End-to-End Fixture Pipeline Test (RFC 0023)", () => {
 
     vi.mocked(parseFileWithService)
       .mockResolvedValueOnce({
-        file_path: "auth.ts",
+        filePath: "auth.ts",
         language: "typescript",
-        functions: [{ name: "handleAuth", start_line: 10, end_line: 12 }],
-        classes: [{ name: "AuthManager", heritage: ["BaseManager"], start_line: 4, end_line: 8 }],
-        imports: [{ source_path: "./helpers", imported_names: ["verifyToken"] }],
-        calls: [{ caller_name: "handleAuth", callee_name: "verifyToken", line_number: 11 }],
+        functions: [{ name: "handleAuth", startLine: 10, endLine: 12, params: [] }],
+        classes: [{ name: "AuthManager", heritage: ["BaseManager"], startLine: 4, endLine: 8 }],
+        imports: [{ sourcePath: "./helpers", importedSymbols: ["verifyToken"] }],
+        calls: [{ callerName: "handleAuth", calleeName: "verifyToken", lineNumber: 11 }],
         error: null,
       })
       .mockResolvedValueOnce({
-        file_path: "helpers.ts",
+        filePath: "helpers.ts",
         language: "typescript",
-        functions: [{ name: "verifyToken", start_line: 1, end_line: 3 }],
+        functions: [{ name: "verifyToken", startLine: 1, endLine: 3, params: [] }],
         classes: [],
         imports: [],
         calls: [],
         error: null,
       })
       .mockResolvedValueOnce({
-        file_path: "base.ts",
+        filePath: "base.ts",
         language: "typescript",
         functions: [],
-        classes: [{ name: "BaseManager", heritage: [], start_line: 1, end_line: 6 }],
+        classes: [{ name: "BaseManager", heritage: [], startLine: 1, endLine: 6 }],
         imports: [],
         calls: [],
         error: null,
@@ -82,10 +82,7 @@ describe("Phase 5 Step 23: End-to-End Fixture Pipeline Test (RFC 0023)", () => {
       { relativePath: "base.ts", absolutePath: basePath, extension: ".ts", sizeBytes: 150 },
     ];
 
-    const parseResult = await parseFiles({
-      indexingJobId: "job-e2e-123",
-      files: fileList,
-    });
+    const parseResult = await parseFiles({ files: fileList });
 
     expect(parseResult.totalParsedFiles).toBe(3);
     expect(parseResult.failedFiles).toBe(0);

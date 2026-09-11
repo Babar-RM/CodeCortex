@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
-  extractFactualClaims,
   extractClaimsHeuristically,
   verifyClaimAgainstGraph,
   critiqueDraft,
@@ -8,12 +7,16 @@ import {
 } from "../lib/agents/critic";
 import { Driver } from "neo4j-driver";
 
+interface MockRecord {
+  get: (key: string) => string | number | null;
+}
+
 describe("Phase 5 Step 23: Critic Claim Verification Unit Tests (RFC 0023)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  const createMockDriver = (records: any[]): Driver =>
+  const createMockDriver = (records: MockRecord[]): Driver =>
     ({
       session: () => ({
         run: vi.fn().mockResolvedValue({ records }),

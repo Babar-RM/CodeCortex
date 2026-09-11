@@ -30,12 +30,16 @@ vi.mock("../lib/retrieval", () => ({
   ]),
 }));
 
+interface MockRecord {
+  get: (key: string) => string | number | null;
+}
+
 describe("Phase 5 Step 23: Agent Tools Unit Tests (RFC 0023)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  const createMockDriver = (records: any[]): Driver =>
+  const createMockDriver = (records: MockRecord[]): Driver =>
     ({
       session: () => ({
         run: vi.fn().mockResolvedValue({ records }),
@@ -73,12 +77,12 @@ describe("Phase 5 Step 23: Agent Tools Unit Tests (RFC 0023)", () => {
     vi.mocked(prisma.codeEmbedding.findMany).mockResolvedValue([
       {
         id: "1",
+        createdAt: new Date(),
         connectedRepoId: "repo-123",
         filePath: "src/auth.ts",
         entityType: "Function",
         entityName: "handleAuth",
         contentChunk: "function handleAuth() {}",
-        embedding: null,
       },
     ]);
 
