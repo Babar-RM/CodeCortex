@@ -19,6 +19,7 @@ It is built in five phases, each with a hard checkpoint before the next begins. 
 
 | 4 | Memory & efficiency (insight cache, incremental re-indexing, evidence display) | ✅ Completed |
 | 5 | Hardening, testing, polish (rate limits, RBAC, logging, automated tests) | ✅ Completed |
+| 6 | Frontend UI & Real-Time Interaction (dashboard polling, chat interface, SSE streaming, evidence, error states) | 🚧 In Progress |
 
 ## Project Goals
 
@@ -557,5 +558,16 @@ All RFCs will live in `docs/rfcs/`, numbered sequentially, never reused. This is
 | 0021 | RBAC / private repo access | Resolves RFC 0010's deferred decision properly, tied to GitHub's permission model |
 | 0022 | Structured logging / agent trace | Per-agent-step logging, doubling as an in-app debug view |
 | 0023 | Automated pipeline/agent tests | Fixture-based, deterministic, no live LLM calls in CI |
+
+### Phase 6 — Frontend UI & Interaction
+
+| # | Title | Covers |
+|---|---|---|
+| 0024 | Dashboard live indexing progress | Poll status/progressMessage while jobs are non-terminal |
+| 0025 | Chat interface architecture | `/chat/[sessionId]`, session list, message thread, optimistic send |
+| 0026 | SSE streaming consumption | `useAgentStream` hook, live agent progress indicator panel |
+| 0027 | Evidence and citation rendering | `EvidencePanel`, clickable cards with commit-pinned GitHub links |
+| 0028 | Rate-limit and error-state UI | `RateLimitError` detection, relative reset banner UI |
+| 0029 | Private repository / GitHub App install UI | Scope indication and GitHub App installation flow |
 
 **Rule:** don't write RFC 0011 while RFC 0005–0009 are still unbuilt. Don't write RFC 0006 before RFC 0005 is actually implemented and checkpointed. The numbering above is the plan, not permission to jump ahead.
