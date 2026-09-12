@@ -7,7 +7,9 @@ import {
   ConnectedRepo,
   GithubRepoOption,
   JobStatus,
+  RateLimitError,
 } from "@/lib/api";
+import { RateLimitBanner } from "./RateLimitBanner";
 import {
   GitBranch,
   Lock,
@@ -28,12 +30,14 @@ export function RepoConnector() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [selectedRepoFullName, setSelectedRepoFullName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [rateLimitInfo, setRateLimitInfo] = useState<{ limitName?: string; resetSeconds?: number } | null>(null);
 
   const fetchRepos = useCallback(async () => {
     try {
       const repos = await api.listConnectedRepos();
       setConnectedRepos(repos);
       setError(null);
+      setRateLimitInfo(null);
       return repos;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to load repos";
@@ -85,6 +89,7 @@ export function RepoConnector() {
 
     setIsConnecting(true);
     setError(null);
+    setRateLimitInfo(null);
 
     try {
       await api.connectRepo({
@@ -96,8 +101,13 @@ export function RepoConnector() {
       setSelectedRepoFullName("");
       await fetchRepos();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to connect repository";
-      setError(message);
+      if (err instanceof RateLimitError) {
+        setRateLimitInfo({ limitName: err.limitName, resetSeconds: err.resetSeconds });
+        setError(err.message);
+      } else {
+        const message = err instanceof Error ? err.message : "Failed to connect repository";
+        setError(message);
+      }
     } finally {
       setIsConnecting(false);
     }
@@ -198,10 +208,24 @@ export function RepoConnector() {
         </form>
 
         {error && (
-          <div className="mt-4 p-3 rounded-lg bg-rose-950/50 border border-rose-800/50 text-rose-300 text-sm flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            <span>{error}</span>
-          </div>
+          rateLimitInfo ? (
+            <div className="mt-4">
+              <RateLimitBanner
+                message={error}
+                limitName={rateLimitInfo.limitName}
+                resetSeconds={rateLimitInfo.resetSeconds}
+                onClose={() => {
+                  setError(null);
+                  setRateLimitInfo(null);
+                }}
+              />
+            </div>
+          ) : (
+            <div className="mt-4 p-3 rounded-lg bg-rose-950/50 border border-rose-800/50 text-rose-300 text-sm flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )
         )}
       </div>
 

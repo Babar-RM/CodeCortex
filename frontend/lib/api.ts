@@ -76,6 +76,13 @@ export class ApiError extends Error {
   }
 }
 
+export class RateLimitError extends ApiError {
+  constructor(message: string, public limitName?: string, public resetSeconds?: number) {
+    super(429, message);
+    this.name = "RateLimitError";
+  }
+}
+
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${BACKEND_URL}${endpoint}`;
   const response = await fetch(url, {
@@ -89,12 +96,22 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
 
   if (!response.ok) {
     let errorMsg = `HTTP Error ${response.status}: ${response.statusText}`;
+    let limitName: string | undefined;
+    let resetSeconds: number | undefined;
+
     try {
       const data = await response.json();
       if (data.error) errorMsg = data.error;
+      if (data.limitName) limitName = data.limitName;
+      if (data.resetSeconds) resetSeconds = data.resetSeconds;
     } catch {
       // ignore json parse error
     }
+
+    if (response.status === 429) {
+      throw new RateLimitError(errorMsg, limitName, resetSeconds);
+    }
+
     throw new ApiError(response.status, errorMsg);
   }
 

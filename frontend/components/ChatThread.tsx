@@ -2,9 +2,10 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { ChatMessage, api } from "@/lib/api";
+import { ChatMessage, api, RateLimitError } from "@/lib/api";
 import { useAgentStream, AgentStreamEvent } from "@/lib/useAgentStream";
 import { EvidencePanel } from "./EvidencePanel";
+import { RateLimitBanner } from "./RateLimitBanner";
 import {
   Send,
   User,
@@ -41,6 +42,7 @@ export function ChatThread({
   const [messages, setMessages] = useState<DisplayMessage[]>(initialMessages);
   const [inputContent, setInputContent] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
+  const [rateLimitInfo, setRateLimitInfo] = useState<{ limitName?: string; resetSeconds?: number } | null>(null);
   const [showReasoning, setShowReasoning] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -99,6 +101,7 @@ export function ChatThread({
     if (!content || isStreaming) return;
 
     setLocalError(null);
+    setRateLimitInfo(null);
     setInputContent("");
 
     // Optimistic User Message
@@ -118,7 +121,13 @@ export function ChatThread({
       // Trigger SSE streaming pipeline (RFC 0026)
       await sendStreamMessage(chatSessionId, content);
     } catch (err: unknown) {
-      // Fallback to sync API if SSE endpoint encounters error
+      if (err instanceof RateLimitError) {
+        setRateLimitInfo({ limitName: err.limitName, resetSeconds: err.resetSeconds });
+        setLocalError(err.message);
+        return;
+      }
+
+      // Fallback to sync API if SSE endpoint encounters non-rate-limit error
       console.warn("SSE Stream failed, falling back to sync endpoint", err);
       try {
         const syncResponse = await api.sendChatMessage({ chatSessionId, content });
@@ -128,8 +137,13 @@ export function ChatThread({
             .concat(syncResponse.userMessage, syncResponse.assistantMessage)
         );
       } catch (fallbackErr: unknown) {
-        const msg = fallbackErr instanceof Error ? fallbackErr.message : "Failed to send message";
-        setLocalError(msg);
+        if (fallbackErr instanceof RateLimitError) {
+          setRateLimitInfo({ limitName: fallbackErr.limitName, resetSeconds: fallbackErr.resetSeconds });
+          setLocalError(fallbackErr.message);
+        } else {
+          const msg = fallbackErr instanceof Error ? fallbackErr.message : "Failed to send message";
+          setLocalError(msg);
+        }
       }
     }
   };
@@ -315,18 +329,32 @@ export function ChatThread({
 
       {/* Error Banner */}
       {activeError && (
-        <div className="px-6 py-2 bg-rose-950/80 border-t border-rose-800 text-rose-300 text-xs flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            <span>{activeError}</span>
+        rateLimitInfo ? (
+          <div className="px-6 py-2">
+            <RateLimitBanner
+              message={activeError}
+              limitName={rateLimitInfo.limitName}
+              resetSeconds={rateLimitInfo.resetSeconds}
+              onClose={() => {
+                setLocalError(null);
+                setRateLimitInfo(null);
+              }}
+            />
           </div>
-          <button
-            onClick={() => setLocalError(null)}
-            className="text-rose-400 hover:text-rose-200 font-bold"
-          >
-            ✕
-          </button>
-        </div>
+        ) : (
+          <div className="px-6 py-2 bg-rose-950/80 border-t border-rose-800 text-rose-300 text-xs flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{activeError}</span>
+            </div>
+            <button
+              onClick={() => setLocalError(null)}
+              className="text-rose-400 hover:text-rose-200 font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        )
       )}
 
       {/* Input Form */}
