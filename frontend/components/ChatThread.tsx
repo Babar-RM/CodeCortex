@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ChatMessage, api } from "@/lib/api";
 import { useAgentStream, AgentStreamEvent } from "@/lib/useAgentStream";
+import { EvidencePanel } from "./EvidencePanel";
 import {
   Send,
   User,
@@ -66,6 +67,11 @@ export function ChatThread({
   // When finalAnswer arrives from SSE, append assistant message into history
   useEffect(() => {
     if (finalAnswer && !isStreaming) {
+      const answerEvt = events.find((e) => e.type === "answer") as
+        | { type: "answer"; content: string; evidence?: any[] }
+        | undefined;
+      const evidence = answerEvt?.evidence;
+
       setMessages((prev) => {
         // avoid duplicating if already present
         const last = prev[prev.length - 1];
@@ -79,12 +85,13 @@ export function ChatThread({
             chatSessionId,
             role: "ASSISTANT",
             content: finalAnswer,
+            evidence,
             createdAt: new Date().toISOString(),
           },
         ];
       });
     }
-  }, [finalAnswer, isStreaming, chatSessionId]);
+  }, [finalAnswer, isStreaming, chatSessionId, events]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -258,6 +265,10 @@ export function ChatThread({
                   >
                     {msg.content}
                   </div>
+
+                  {!isUser && msg.evidence && msg.evidence.length > 0 && (
+                    <EvidencePanel evidence={msg.evidence} repoFullName={repoFullName} />
+                  )}
                 </div>
               </div>
             );

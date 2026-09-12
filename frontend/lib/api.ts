@@ -53,11 +53,19 @@ export interface ChatSession {
   };
 }
 
+export interface EvidenceItem {
+  claim: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+}
+
 export interface ChatMessage {
   id: string;
   chatSessionId: string;
   role: "USER" | "ASSISTANT";
   content: string;
+  evidence?: EvidenceItem[];
   createdAt: string;
 }
 
