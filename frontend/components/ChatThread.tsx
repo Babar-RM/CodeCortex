@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { ChatMessage, api } from "@/lib/api";
+import { useAgentStream, AgentStreamEvent } from "@/lib/useAgentStream";
 import {
   Send,
   User,
@@ -11,6 +12,13 @@ import {
   AlertCircle,
   Sparkles,
   GitBranch,
+  ChevronDown,
+  ChevronUp,
+  BrainCircuit,
+  CheckCircle2,
+  Wrench,
+  ShieldCheck,
+  RotateCcw,
 } from "lucide-react";
 
 interface ChatThreadProps {
@@ -31,9 +39,17 @@ export function ChatThread({
 }: ChatThreadProps) {
   const [messages, setMessages] = useState<DisplayMessage[]>(initialMessages);
   const [inputContent, setInputContent] = useState("");
-  const [isSending, setIsSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [showReasoning, setShowReasoning] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const {
+    events,
+    isStreaming,
+    error: streamError,
+    finalAnswer,
+    sendStreamMessage,
+  } = useAgentStream();
 
   useEffect(() => {
     setMessages(initialMessages);
@@ -45,18 +61,40 @@ export function ChatThread({
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isSending]);
+  }, [messages, events, isStreaming]);
+
+  // When finalAnswer arrives from SSE, append assistant message into history
+  useEffect(() => {
+    if (finalAnswer && !isStreaming) {
+      setMessages((prev) => {
+        // avoid duplicating if already present
+        const last = prev[prev.length - 1];
+        if (last && last.role === "ASSISTANT" && last.content === finalAnswer) {
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            id: `assistant-${Date.now()}`,
+            chatSessionId,
+            role: "ASSISTANT",
+            content: finalAnswer,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+      });
+    }
+  }, [finalAnswer, isStreaming, chatSessionId]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     const content = inputContent.trim();
-    if (!content || isSending) return;
+    if (!content || isStreaming) return;
 
-    setError(null);
+    setLocalError(null);
     setInputContent("");
-    setIsSending(true);
 
-    // Optimistic user message (RFC 0025)
+    // Optimistic User Message
     const optimisticId = `optimistic-${Date.now()}`;
     const optimisticUserMsg: DisplayMessage = {
       id: optimisticId,
@@ -64,35 +102,28 @@ export function ChatThread({
       role: "USER",
       content,
       createdAt: new Date().toISOString(),
-      isOptimistic: true,
     };
 
     setMessages((prev) => [...prev, optimisticUserMsg]);
+    setShowReasoning(true);
 
     try {
-      const response = await api.sendChatMessage({
-        chatSessionId,
-        content,
-      });
-
-      // Replace optimistic message with confirmed backend response
-      setMessages((prev) =>
-        prev
-          .filter((m) => m.id !== optimisticId)
-          .concat(response.userMessage, response.assistantMessage)
-      );
+      // Trigger SSE streaming pipeline (RFC 0026)
+      await sendStreamMessage(chatSessionId, content);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to send message";
-      setError(msg);
-
-      // Revert or mark optimistic message as failed
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === optimisticId ? { ...m, isError: true, isOptimistic: false } : m
-        )
-      );
-    } finally {
-      setIsSending(false);
+      // Fallback to sync API if SSE endpoint encounters error
+      console.warn("SSE Stream failed, falling back to sync endpoint", err);
+      try {
+        const syncResponse = await api.sendChatMessage({ chatSessionId, content });
+        setMessages((prev) =>
+          prev
+            .filter((m) => m.id !== optimisticId)
+            .concat(syncResponse.userMessage, syncResponse.assistantMessage)
+        );
+      } catch (fallbackErr: unknown) {
+        const msg = fallbackErr instanceof Error ? fallbackErr.message : "Failed to send message";
+        setLocalError(msg);
+      }
     }
   };
 
@@ -102,6 +133,68 @@ export function ChatThread({
       handleSend(e);
     }
   };
+
+  const renderEventItem = (evt: AgentStreamEvent, idx: number) => {
+    switch (evt.type) {
+      case "planning":
+        return (
+          <div key={idx} className="flex items-center gap-2 text-xs text-slate-400">
+            <BrainCircuit className="w-3.5 h-3.5 text-primary-400 animate-pulse" />
+            <span>Analyzing question intent and context...</span>
+          </div>
+        );
+      case "planned":
+        return (
+          <div key={idx} className="flex items-center gap-2 text-xs text-cyan-300 font-mono">
+            <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
+            <span>
+              Route: <strong>{evt.questionType}</strong> — {evt.reasoning}
+            </span>
+          </div>
+        );
+      case "investigating":
+        return (
+          <div key={idx} className="flex items-center gap-2 text-xs text-slate-300 font-mono">
+            <Wrench className="w-3.5 h-3.5 text-amber-400" />
+            <span>
+              {evt.specialist ? `${evt.specialist} agent` : "Agent"} executing tool:{" "}
+              <code className="text-amber-300 bg-slate-900 px-1 py-0.5 rounded">{evt.toolCall || "code search"}</code>
+            </span>
+          </div>
+        );
+      case "tool_result":
+        return (
+          <div key={idx} className="text-[11px] text-slate-400 font-mono pl-5 border-l border-slate-800">
+            ↳ {evt.summary}
+          </div>
+        );
+      case "drafting":
+        return (
+          <div key={idx} className="flex items-center gap-2 text-xs text-slate-300">
+            <Sparkles className="w-3.5 h-3.5 text-violet-400 animate-pulse" />
+            <span>Drafting grounded answer from retrieved graph facts...</span>
+          </div>
+        );
+      case "verifying":
+        return (
+          <div key={idx} className="flex items-center gap-2 text-xs text-emerald-300 font-medium">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Critic Agent verifying claims against graph database...</span>
+          </div>
+        );
+      case "revising":
+        return (
+          <div key={idx} className="flex items-center gap-2 text-xs text-rose-300 font-mono">
+            <RotateCcw className="w-3.5 h-3.5 text-rose-400 animate-spin" />
+            <span>Critic revision round: {evt.feedback}</span>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const activeError = localError || streamError;
 
   return (
     <div className="flex-1 flex flex-col h-full bg-background overflow-hidden">
@@ -121,15 +214,15 @@ export function ChatThread({
 
       {/* Message List */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {messages.length === 0 ? (
+        {messages.length === 0 && events.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-4">
             <div className="w-16 h-16 rounded-2xl bg-primary-950/80 border border-primary-800/60 flex items-center justify-center text-primary-400 shadow-xl">
-              <Sparkles className="w-8 h-8" />
+              <BrainCircuit className="w-8 h-8" />
             </div>
             <div className="space-y-1 max-w-md">
               <h3 className="font-bold text-white text-lg">Ask CodeCortex Anything</h3>
               <p className="text-sm text-slate-400">
-                Ask structural or architectural questions about functions, call paths, imports, bugs, or refactoring in this repository.
+                Multi-agent streaming answers verified against your codebase graph.
               </p>
             </div>
           </div>
@@ -161,39 +254,47 @@ export function ChatThread({
                       isUser
                         ? "bg-primary-600 text-white rounded-tr-none shadow-lg shadow-primary-600/20"
                         : "bg-surface border border-border/80 text-slate-200 rounded-tl-none shadow-md"
-                    } ${msg.isError ? "border-rose-500 bg-rose-950/50 text-rose-200" : ""}`}
+                    }`}
                   >
                     {msg.content}
                   </div>
-
-                  {msg.isOptimistic && (
-                    <div className="text-[10px] text-primary-400 flex items-center gap-1 justify-end">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      Sending...
-                    </div>
-                  )}
-
-                  {msg.isError && (
-                    <div className="text-[10px] text-rose-400 flex items-center gap-1 justify-end">
-                      <AlertCircle className="w-3 h-3" />
-                      Failed to send
-                    </div>
-                  )}
                 </div>
               </div>
             );
           })
         )}
 
-        {/* Loading Indicator for Assistant Thinking */}
-        {isSending && (
-          <div className="flex gap-3 max-w-3xl mr-auto">
-            <div className="w-8 h-8 rounded-xl bg-surface-card border border-border text-cyan-400 flex items-center justify-center flex-shrink-0">
-              <Bot className="w-4 h-4" />
-            </div>
-            <div className="p-4 rounded-2xl rounded-tl-none bg-surface border border-border/80 text-slate-400 text-sm flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin text-primary-400" />
-              <span>Analyzing graph dependency & generating verified response...</span>
+        {/* Live SSE Streaming Thought Trace Panel (RFC 0026) */}
+        {(isStreaming || events.length > 0) && (
+          <div className="max-w-3xl mr-auto space-y-2">
+            <div className="bg-surface-card/80 border border-slate-800 rounded-2xl overflow-hidden shadow-lg">
+              <button
+                type="button"
+                onClick={() => setShowReasoning(!showReasoning)}
+                className="w-full px-4 py-2.5 bg-slate-900/80 hover:bg-slate-900 border-b border-slate-800/80 flex items-center justify-between text-xs font-semibold text-slate-300"
+              >
+                <div className="flex items-center gap-2">
+                  <BrainCircuit className="w-4 h-4 text-primary-400 animate-pulse" />
+                  <span>Agent Reasoning & Execution Log ({events.length} steps)</span>
+                </div>
+                {showReasoning ? (
+                  <ChevronUp className="w-4 h-4 text-slate-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                )}
+              </button>
+
+              {showReasoning && (
+                <div className="p-4 space-y-2.5 max-h-60 overflow-y-auto bg-slate-950/60 font-sans">
+                  {events.map((evt, idx) => renderEventItem(evt, idx))}
+                  {isStreaming && (
+                    <div className="flex items-center gap-2 text-xs text-primary-400 font-medium pt-1">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Pipeline active...</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -201,15 +302,15 @@ export function ChatThread({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Error Alert Banner */}
-      {error && (
+      {/* Error Banner */}
+      {activeError && (
         <div className="px-6 py-2 bg-rose-950/80 border-t border-rose-800 text-rose-300 text-xs flex items-center justify-between">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            <span>{error}</span>
+            <span>{activeError}</span>
           </div>
           <button
-            onClick={() => setError(null)}
+            onClick={() => setLocalError(null)}
             className="text-rose-400 hover:text-rose-200 font-bold"
           >
             ✕
@@ -224,17 +325,17 @@ export function ChatThread({
             value={inputContent}
             onChange={(e) => setInputContent(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask a question about this repository codebase (Shift+Enter for new line)..."
+            placeholder="Ask a question (SSE multi-agent streaming active)..."
             rows={1}
-            disabled={isSending}
+            disabled={isStreaming}
             className="flex-1 bg-transparent text-slate-100 placeholder-slate-500 text-sm p-2 resize-none focus:outline-none max-h-32 min-h-[40px]"
           />
           <button
             type="submit"
-            disabled={!inputContent.trim() || isSending}
+            disabled={!inputContent.trim() || isStreaming}
             className="p-2.5 rounded-xl bg-gradient-to-r from-primary-600 to-accent-cyan hover:brightness-110 text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-primary-600/30"
           >
-            {isSending ? (
+            {isStreaming ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <Send className="w-4 h-4" />
