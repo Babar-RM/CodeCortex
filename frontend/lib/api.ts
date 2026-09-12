@@ -40,6 +40,27 @@ export interface GithubRepoOption {
   defaultBranch: string;
 }
 
+export interface ChatSession {
+  id: string;
+  userId: string;
+  connectedRepoId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  connectedRepo?: {
+    id: string;
+    fullName: string;
+  };
+}
+
+export interface ChatMessage {
+  id: string;
+  chatSessionId: string;
+  role: "USER" | "ASSISTANT";
+  content: string;
+  createdAt: string;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -103,5 +124,35 @@ export const api = {
       body: JSON.stringify(params),
     });
     return res.repo;
+  },
+
+  // Chat API endpoints (RFC 0025)
+  async listChatSessions(connectedRepoId?: string): Promise<ChatSession[]> {
+    const query = connectedRepoId ? `?connectedRepoId=${encodeURIComponent(connectedRepoId)}` : "";
+    const res = await apiFetch<{ sessions: ChatSession[] }>(`/api/chat/sessions${query}`);
+    return res.sessions;
+  },
+
+  async createChatSession(params: { connectedRepoId: string; title?: string }): Promise<ChatSession> {
+    const res = await apiFetch<{ session: ChatSession }>("/api/chat/sessions", {
+      method: "POST",
+      body: JSON.stringify(params),
+    });
+    return res.session;
+  },
+
+  async getChatMessages(sessionId: string): Promise<ChatMessage[]> {
+    const res = await apiFetch<{ messages: ChatMessage[] }>(`/api/chat/sessions/${sessionId}/messages`);
+    return res.messages;
+  },
+
+  async sendChatMessage(params: {
+    chatSessionId: string;
+    content: string;
+  }): Promise<{ userMessage: ChatMessage; assistantMessage: ChatMessage }> {
+    return apiFetch<{ userMessage: ChatMessage; assistantMessage: ChatMessage }>("/api/chat/messages", {
+      method: "POST",
+      body: JSON.stringify(params),
+    });
   },
 };
