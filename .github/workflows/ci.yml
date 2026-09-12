@@ -67,6 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PIP_EXTRA_INDEX_URL: "https://download.pytorch.org/whl/cpu"
+      PYTHONPATH: "."
     defaults:
       run:
         working-directory: parser-service
@@ -88,4 +89,4 @@ jobs:
           pip install -r requirements.txt pytest httpx
 
       - name: Run pytest
-        run: pytest
+        run: python -m pytest
