@@ -46,7 +46,7 @@ jobs:
       - name: Push Prisma Schema to Test DB
         run: npx prisma db push
         env:
-          DATABASE_URL: "postgresql://postgres:password@localhost:5432/codecortex_test"
+          DATABASE_URL: "postgresql://postgres:password@127.0.0.1:5432/codecortex_test"
 
       - name: Lint code
         run: npm run lint
@@ -57,7 +57,7 @@ jobs:
       - name: Run unit tests
         run: npm run test
         env:
-          DATABASE_URL: "postgresql://postgres:password@localhost:5432/codecortex_test"
+          DATABASE_URL: "postgresql://postgres:password@127.0.0.1:5432/codecortex_test"
           AUTH_SECRET: "test-auth-secret-key-32-characters-long"
           GITHUB_CLIENT_ID: "dummy-client-id"
           GITHUB_CLIENT_SECRET: "dummy-client-secret"
@@ -65,6 +65,8 @@ jobs:
   parser-service-ci:
     name: Parser Service CI
     runs-on: ubuntu-latest
+    env:
+      PIP_EXTRA_INDEX_URL: "https://download.pytorch.org/whl/cpu"
     defaults:
       run:
         working-directory: parser-service
@@ -77,11 +79,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: parser-service/requirements.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest httpx --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt pytest httpx
 
       - name: Run pytest
         run: pytest
