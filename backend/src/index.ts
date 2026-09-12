@@ -21,7 +21,7 @@ app.use(
 );
 
 // Auth.js route mounted BEFORE express.json() per RFC 0002
-app.use("/auth/*", ExpressAuth(authConfig));
+app.use("/auth", ExpressAuth(authConfig));
 
 app.use(express.json());
 
