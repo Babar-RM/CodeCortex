@@ -75,7 +75,7 @@ export default function LandingPage() {
             className="w-full sm:w-auto px-8 py-4 rounded-xl bg-gradient-to-r from-primary-600 via-primary-500 to-accent-cyan hover:brightness-110 text-white font-semibold text-base flex items-center justify-center gap-3 transition-all shadow-xl shadow-primary-500/25"
           >
             <Github className="w-5 h-5" />
-            Get Started with GitHub
+            Connect GitHub App & Repositories
           </a>
         </div>
 

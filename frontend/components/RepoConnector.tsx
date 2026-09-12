@@ -21,6 +21,8 @@ import {
   Plus,
   Loader2,
   AlertCircle,
+  ExternalLink,
+  ShieldAlert,
 } from "lucide-react";
 
 export function RepoConnector() {
@@ -175,37 +177,72 @@ export function RepoConnector() {
         </div>
 
         {/* Connect Form */}
-        <form onSubmit={handleConnect} className="mt-6 flex gap-3">
-          <select
-            value={selectedRepoFullName}
-            onChange={(e) => setSelectedRepoFullName(e.target.value)}
-            disabled={isConnecting || availableRepos.length === 0}
-            className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-border text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
-          >
-            <option value="">
-              {availableRepos.length === 0
-                ? "No available GitHub repositories found"
-                : "-- Select a GitHub Repository to Connect --"}
-            </option>
-            {availableRepos.map((repo) => (
-              <option key={repo.fullName} value={repo.fullName}>
-                {repo.fullName} {repo.isPrivate ? "(Private)" : "(Public)"}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            disabled={!selectedRepoFullName || isConnecting}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary-600 to-accent-cyan hover:from-primary-500 hover:to-cyan-400 text-white text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary-500/20"
-          >
-            {isConnecting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Plus className="w-4 h-4" />
-            )}
-            Connect Repo
-          </button>
-        </form>
+        {(() => {
+          const selectedTargetRepo = availableRepos.find((r) => r.fullName === selectedRepoFullName);
+          const isSelectedAccessible = selectedTargetRepo ? selectedTargetRepo.accessible !== false : true;
+
+          return (
+            <>
+              <form onSubmit={handleConnect} className="mt-6 flex gap-3">
+                <select
+                  value={selectedRepoFullName}
+                  onChange={(e) => setSelectedRepoFullName(e.target.value)}
+                  disabled={isConnecting || availableRepos.length === 0}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-border text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
+                >
+                  <option value="">
+                    {availableRepos.length === 0
+                      ? "No available GitHub repositories found"
+                      : "-- Select a GitHub Repository to Connect --"}
+                  </option>
+                  {availableRepos.map((repo) => {
+                    const isAccessible = repo.accessible !== false;
+                    return (
+                      <option key={repo.fullName} value={repo.fullName}>
+                        {repo.fullName} {repo.isPrivate ? "(Private)" : "(Public)"}{" "}
+                        {isAccessible ? "✓ Accessible" : "(Needs App Scope)"}
+                      </option>
+                    );
+                  })}
+                </select>
+                <button
+                  type="submit"
+                  disabled={!selectedRepoFullName || !isSelectedAccessible || isConnecting}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary-600 to-accent-cyan hover:from-primary-500 hover:to-cyan-400 text-white text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary-500/20"
+                >
+                  {isConnecting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Plus className="w-4 h-4" />
+                  )}
+                  Connect Repo
+                </button>
+              </form>
+
+              {/* GitHub App Installation Scope Guidance (RFC 0029) */}
+              {selectedTargetRepo && !isSelectedAccessible && (
+                <div className="mt-4 p-4 rounded-xl bg-slate-900 border border-slate-800 text-xs space-y-3">
+                  <div className="flex items-center gap-2 text-amber-300 font-semibold">
+                    <ShieldAlert className="w-4 h-4 text-amber-400" />
+                    <span>GitHub App Installation Scope Required</span>
+                  </div>
+                  <p className="text-slate-400 leading-relaxed">
+                    Repository <strong className="text-white">{selectedTargetRepo.fullName}</strong> is not yet covered by your GitHub App installation. Grant CodeCortex access by updating your installation scope on GitHub.
+                  </p>
+                  <a
+                    href={selectedTargetRepo.installationUrl || "https://github.com/settings/installations"}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-primary-600 hover:bg-primary-500 text-white font-semibold transition-colors"
+                  >
+                    <span>Update GitHub App Installation Scope</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {error && (
           rateLimitInfo ? (

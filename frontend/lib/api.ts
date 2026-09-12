@@ -38,6 +38,8 @@ export interface GithubRepoOption {
   htmlUrl: string;
   isPrivate: boolean;
   defaultBranch: string;
+  accessible?: boolean;
+  installationUrl?: string;
 }
 
 export interface ChatSession {
