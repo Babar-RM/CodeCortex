@@ -152,6 +152,26 @@ export async function extractFactualClaims(
     } catch {
       // Fall through to heuristic extraction
     }
+  } else {
+    try {
+      const { callLLMCompletion } = await import("../llm");
+      const rawOutput = await callLLMCompletion(`DRAFT ANSWER:\n${draftAnswer}`, {
+        systemPrompt: CLAIM_EXTRACTION_SYSTEM_PROMPT,
+        temperature: 0.0,
+      });
+
+      if (rawOutput) {
+        const jsonMatch = rawOutput.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]) as FactualClaim[];
+          if (Array.isArray(parsed)) {
+            return parsed;
+          }
+        }
+      }
+    } catch {
+      // Fall through to heuristic extraction
+    }
   }
 
   return extractClaimsHeuristically(draftAnswer);

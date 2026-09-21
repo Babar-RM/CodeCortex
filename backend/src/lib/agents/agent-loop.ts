@@ -84,7 +84,7 @@ export async function runToolCallingAgent(
 
     let llmOutput = "";
 
-    // 1. Invoke custom LLM or fallback simulation
+    // 1. Invoke custom LLM or central LLM helper
     if (params.customLlmCompletion) {
       try {
         llmOutput = await params.customLlmCompletion(currentPrompt);
@@ -93,30 +93,8 @@ export async function runToolCallingAgent(
         llmOutput = `Error calling LLM: ${errorMsg}`;
       }
     } else {
-      const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.LLM_API_KEY;
-      if (apiKey) {
-        try {
-          const response = await fetch(process.env.LLM_API_URL || "https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-              model: process.env.LLM_MODEL || "gpt-3.5-turbo",
-              messages: [{ role: "user", content: currentPrompt }],
-              temperature: 0.2,
-            }),
-          });
-
-          if (response.ok) {
-            const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
-            llmOutput = data.choices?.[0]?.message?.content || "";
-          }
-        } catch {
-          // Fall through to deterministic simulation
-        }
-      }
+      const { callLLMCompletion } = await import("../llm");
+      llmOutput = await callLLMCompletion(currentPrompt);
     }
 
     // RAG fallback response if no external LLM API key is set

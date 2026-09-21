@@ -132,40 +132,25 @@ export async function planQuestion(params: PlanQuestionParams): Promise<PlannerR
     }
   }
 
-  // Check remote API key availability
-  const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.LLM_API_KEY;
-  if (apiKey && !customLlmCompletion) {
+  // Invoke central LLM completion helper
+  if (!customLlmCompletion) {
     try {
-      const response = await fetch(process.env.LLM_API_URL || "https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: process.env.LLM_MODEL || "gpt-3.5-turbo",
-          messages: [
-            { role: "system", content: PLANNER_SYSTEM_PROMPT },
-            { role: "user", content: `USER QUESTION: "${question}"` },
-          ],
-          temperature: 0.0,
-        }),
+      const { callLLMCompletion } = await import("../llm");
+      const content = await callLLMCompletion(`USER QUESTION: "${question}"`, {
+        systemPrompt: PLANNER_SYSTEM_PROMPT,
+        temperature: 0.0,
       });
 
-      if (response.ok) {
-        const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
-        const content = data.choices?.[0]?.message?.content;
-        if (content) {
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]) as { type?: string; reasoning?: string };
-            const validTypes: QuestionType[] = ["explain", "bug_trace", "review", "refactor"];
-            if (parsed.type && validTypes.includes(parsed.type as QuestionType)) {
-              return {
-                type: parsed.type as QuestionType,
-                reasoning: parsed.reasoning || `Classified as ${parsed.type}.`,
-              };
-            }
+      if (content) {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]) as { type?: string; reasoning?: string };
+          const validTypes: QuestionType[] = ["explain", "bug_trace", "review", "refactor"];
+          if (parsed.type && validTypes.includes(parsed.type as QuestionType)) {
+            return {
+              type: parsed.type as QuestionType,
+              reasoning: parsed.reasoning || `Classified as ${parsed.type}.`,
+            };
           }
         }
       }
