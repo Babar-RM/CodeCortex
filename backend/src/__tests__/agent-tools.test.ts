@@ -11,6 +11,7 @@ import { prisma } from "../lib/prisma";
 import { Driver } from "neo4j-driver";
 
 vi.mock("../lib/prisma", () => ({
+  withRetry: (fn: any) => fn(),
   prisma: {
     codeEmbedding: {
       findMany: vi.fn(),

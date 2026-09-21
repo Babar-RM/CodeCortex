@@ -40,13 +40,16 @@ export default function LandingPage() {
               <ArrowRight className="w-4 h-4" />
             </Link>
           ) : (
-            <a
-              href={`${backendUrl}/auth/signin/github`}
-              className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium text-sm flex items-center gap-2 transition-all shadow-md"
-            >
-              <Github className="w-4 h-4" />
-              Sign in with GitHub
-            </a>
+            <form action={`${backendUrl}/auth/signin/github`} method="POST">
+              <input type="hidden" name="redirectTo" value="http://localhost:3000/dashboard" />
+              <button
+                type="submit"
+                className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium text-sm flex items-center gap-2 transition-all shadow-md cursor-pointer"
+              >
+                <Github className="w-4 h-4" />
+                Sign in with GitHub
+              </button>
+            </form>
           )}
         </div>
       </header>
@@ -70,13 +73,16 @@ export default function LandingPage() {
         </p>
 
         <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
-          <a
-            href={`${backendUrl}/auth/signin/github`}
-            className="w-full sm:w-auto px-8 py-4 rounded-xl bg-gradient-to-r from-primary-600 via-primary-500 to-accent-cyan hover:brightness-110 text-white font-semibold text-base flex items-center justify-center gap-3 transition-all shadow-xl shadow-primary-500/25"
-          >
-            <Github className="w-5 h-5" />
-            Connect GitHub App & Repositories
-          </a>
+          <form action={`${backendUrl}/auth/signin/github`} method="POST" className="w-full sm:w-auto">
+            <input type="hidden" name="redirectTo" value="http://localhost:3000/dashboard" />
+            <button
+              type="submit"
+              className="w-full sm:w-auto px-8 py-4 rounded-xl bg-gradient-to-r from-primary-600 via-primary-500 to-accent-cyan hover:brightness-110 text-white font-semibold text-base flex items-center justify-center gap-3 transition-all shadow-xl shadow-primary-500/25 cursor-pointer"
+            >
+              <Github className="w-5 h-5" />
+              Connect GitHub App & Repositories
+            </button>
+          </form>
         </div>
 
         {/* Feature Cards */}

@@ -31,7 +31,7 @@ reposRouter.get("/github", async (req: Request, res: Response) => {
   }
 
   try {
-    const response = await fetch("https://api.github.com/user/repos?sort=updated&per_page=100", {
+    const response = await fetch("https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member", {
       headers: {
         Authorization: `Bearer ${req.githubAccessToken}`,
         Accept: "application/vnd.github+json",

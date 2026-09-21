@@ -1,11 +1,17 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import GitHub from "@auth/express/providers/github";
 import type { ExpressAuthConfig, JWTToken, Session } from "@auth/express";
+import { skipCSRFCheck } from "@auth/core";
 
 export const authConfig: ExpressAuthConfig = {
+  basePath: "/auth",
+  skipCSRFCheck: skipCSRFCheck,
   providers: [
     GitHub({
-      clientId: process.env.GITHUB_CLIENT_ID || "",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
+      clientId: process.env.GITHUB_CLIENT_ID || process.env.AUTH_GITHUB_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET || process.env.AUTH_GITHUB_SECRET,
       authorization: {
         params: {
           scope: "read:user user:email repo",
@@ -31,6 +37,23 @@ export const authConfig: ExpressAuthConfig = {
       session.githubLogin = token.githubLogin as string | undefined;
       session.avatarUrl = token.avatarUrl as string | undefined;
       return session;
+    },
+    async redirect({ url, baseUrl }: { url: string; baseUrl: string }) {
+      const frontendOrigin = process.env.FRONTEND_ORIGIN || "http://localhost:3000";
+      // Allow redirects to the frontend origin (cross-origin)
+      if (url.startsWith(frontendOrigin)) {
+        return url;
+      }
+      // Allow relative URLs
+      if (url.startsWith("/")) {
+        return `${frontendOrigin}${url}`;
+      }
+      // Allow same-origin (backend) redirects
+      if (url.startsWith(baseUrl)) {
+        return url;
+      }
+      // Default: redirect to frontend dashboard
+      return `${frontendOrigin}/dashboard`;
     },
   },
 };

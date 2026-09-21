@@ -94,13 +94,37 @@ export async function fetchRepo(params: FetchRepoParams): Promise<FetchRepoResul
   const workspacePath = path.join(baseTmpDir, `workspace-${params.indexingJobId}`);
 
   if (fs.existsSync(workspacePath)) {
-    await fs.promises.rm(workspacePath, { recursive: true, force: true });
+    try {
+      await fs.promises.rm(workspacePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 });
+    } catch {
+      // Ignore transient cleanup errors before clone
+    }
   }
 
-  const git = simpleGit();
-  const cloneArgs = ["--depth", "1"];
+  const gitEnv = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    // Force HTTP/1.1 to avoid HTTP/2 stream closure errors on Windows
+    GIT_HTTP_VERSION: "HTTP/1.1",
+  };
+
+  const git = simpleGit({
+    env: gitEnv,
+    timeout: { block: 600_000 }, // 10 minutes timeout for large repos (100MB+)
+  });
+  const cloneArgs = [
+    "--depth", "1",
+    "--single-branch",
+    "-c", "http.postBuffer=1048576000",
+    "-c", "http.version=HTTP/1.1",
+    "-c", "core.compression=0",
+  ];
   if (params.defaultBranch) {
     cloneArgs.push("--branch", params.defaultBranch);
+  }
+
+  if (params.isPrivate && !params.accessToken) {
+    throw new Error(`Cannot clone private repository '${params.htmlUrl}' without an authentication access token. Please connect a public repository or configure a GitHub App installation.`);
   }
 
   let cloneUrl = params.htmlUrl;
@@ -108,7 +132,44 @@ export async function fetchRepo(params: FetchRepoParams): Promise<FetchRepoResul
     cloneUrl = cloneUrl.replace("https://", `https://x-access-token:${params.accessToken}@`);
   }
 
-  await git.clone(cloneUrl, workspacePath, cloneArgs);
+  // Retry clone up to 3 times to handle transient HTTP/2 stream errors
+  const maxRetries = 3;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Clean up any partial clone from a previous failed attempt
+      if (attempt > 1 && fs.existsSync(workspacePath)) {
+        try {
+          await fs.promises.rm(workspacePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 });
+        } catch {
+          // Ignore transient error
+        }
+      }
+      await git.clone(cloneUrl, workspacePath, cloneArgs);
+      break; // Success
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isTransient =
+        errMsg.includes("HTTP/2 stream") ||
+        errMsg.includes("RPC failed") ||
+        errMsg.includes("curl 92") ||
+        errMsg.includes("curl 56") ||
+        errMsg.includes("early EOF") ||
+        errMsg.includes("unexpected disconnect") ||
+        errMsg.includes("fetch-pack") ||
+        errMsg.includes("timeout") ||
+        errMsg.includes("block timeout");
+
+      if (isTransient && attempt < maxRetries) {
+        const delay = 3000 * attempt; // 3s, 6s
+        console.warn(
+          `[fetch-repo] Clone attempt ${attempt}/${maxRetries} failed (transient HTTP error), retrying in ${delay}ms...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
 
   const gitWorkspace = simpleGit(workspacePath);
   let commitSha = "unknown";
@@ -176,7 +237,11 @@ export async function fetchRepo(params: FetchRepoParams): Promise<FetchRepoResul
 
 export async function cleanupRepo(workspacePath: string): Promise<void> {
   if (workspacePath && fs.existsSync(workspacePath)) {
-    await fs.promises.rm(workspacePath, { recursive: true, force: true });
+    try {
+      await fs.promises.rm(workspacePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 });
+    } catch (e) {
+      console.warn(`[fetch-repo] Warning cleaning up ${workspacePath}:`, e);
+    }
   }
 }
 

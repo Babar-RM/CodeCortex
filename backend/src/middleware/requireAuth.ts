@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { getSession } from "@auth/express";
 import { authConfig } from "../lib/auth";
-import { prisma } from "../lib/prisma";
+import { prisma, withRetry } from "../lib/prisma";
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
@@ -16,20 +16,22 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const avatarUrl = session.avatarUrl || null;
 
     // Upsert user profile on every authenticated request to keep data fresh
-    const user = await prisma.user.upsert({
-      where: { githubId: session.githubId },
-      update: {
-        githubLogin,
-        avatarUrl,
-        email,
-      },
-      create: {
-        githubId: session.githubId,
-        githubLogin,
-        avatarUrl,
-        email,
-      },
-    });
+    const user = await withRetry(() =>
+      prisma.user.upsert({
+        where: { githubId: session.githubId },
+        update: {
+          githubLogin,
+          avatarUrl,
+          email,
+        },
+        create: {
+          githubId: session.githubId,
+          githubLogin,
+          avatarUrl,
+          email,
+        },
+      })
+    );
 
     req.user = user;
     req.githubAccessToken = session.githubAccessToken;

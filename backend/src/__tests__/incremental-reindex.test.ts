@@ -13,6 +13,7 @@ import simpleGit from "simple-git";
 vi.mock("simple-git");
 
 vi.mock("../lib/prisma", () => ({
+  withRetry: (fn: any) => fn(),
   prisma: {
     connectedRepo: {
       findUnique: vi.fn(),

@@ -119,14 +119,32 @@ export async function runToolCallingAgent(
       }
     }
 
-    // Default simulation response if LLM produced no output
+    // RAG fallback response if no external LLM API key is set
     if (!llmOutput) {
-      // In first iteration, simulate executing the first available tool for testing/offline mode
       if (iteration === 1 && params.availableTools.length > 0) {
         const firstTool = params.availableTools[0];
         llmOutput = `TOOL: ${firstTool}({"arg": "test"})`;
       } else {
-        llmOutput = `Based on the investigation using ${params.specialistName}, the codebase facts have been gathered. Refer to the executed tool outputs for exact references.`;
+        try {
+          const { embedTextsWithService } = await import("../parser-client");
+          const { searchSemantic } = await import("../../jobs/pipeline/generate-embeddings");
+          const embeddings = await embedTextsWithService([params.question]);
+          const queryVector = embeddings[0] || [];
+
+          if (queryVector.length > 0) {
+            const matches = await searchSemantic(params.connectedRepoId, queryVector, 5);
+            if (matches.length > 0) {
+              const snippets = matches.map((m: { filePath: string; contentChunk: string }) => `- \`${m.filePath}\`: ${m.contentChunk}`).join("\n");
+              llmOutput = `### Analysis for: "${params.question}"\n\nBased on semantic vector search over your repository, here are the key relevant code definitions:\n\n${snippets}\n\n> 💡 **Tip:** Add \`OPENAI_API_KEY\` or \`LLM_API_KEY\` to \`backend/.env\` to enable full multi-agent LLM reasoning and code synthesis.`;
+            }
+          }
+        } catch {
+          // Fallback
+        }
+
+        if (!llmOutput) {
+          llmOutput = `Based on the investigation using ${params.specialistName}, the codebase facts have been gathered for "${params.question}". Configure an LLM API key in \`backend/.env\` for full multi-agent reasoning.`;
+        }
       }
     }
 

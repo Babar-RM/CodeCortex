@@ -10,6 +10,7 @@ import simpleGit from "simple-git";
 vi.mock("simple-git");
 
 vi.mock("../lib/prisma", () => ({
+  withRetry: (fn: any) => fn(),
   prisma: {
     connectedRepo: {
       findUnique: vi.fn(),
@@ -86,7 +87,7 @@ describe("Private Repository Access & Installation Token Policy (RFC 0021)", () 
     expect(gitMock.clone).toHaveBeenCalledWith(
       "https://x-access-token:ghs_test_token_123@github.com/octocat/secret-project",
       expect.stringContaining("workspace-job_priv_999"),
-      ["--depth", "1", "--branch", "main"]
+      expect.arrayContaining(["--depth", "1", "--branch", "main"])
     );
     expect(result.commitSha).toBe("abc123def456");
   });

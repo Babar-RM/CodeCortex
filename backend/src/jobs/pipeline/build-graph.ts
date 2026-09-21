@@ -23,14 +23,28 @@ export async function buildGraph(params: BuildGraphParams): Promise<BuildGraphRe
   let relationshipsCreated = 0;
 
   try {
-    await session.run(
-      `
-      MERGE (r:Repo { id: $repoId })
-      ON CREATE SET r.fullName = $repoName
-      `,
-      { repoId: params.repoId, repoName: params.repoName }
-    );
-    nodesCreated++;
+    try {
+      await session.run(
+        `
+        MERGE (r:Repo { id: $repoId })
+        ON CREATE SET r.fullName = $repoName
+        `,
+        { repoId: params.repoId, repoName: params.repoName }
+      );
+      nodesCreated++;
+    } catch (connErr: unknown) {
+      const errMsg = connErr instanceof Error ? connErr.message : String(connErr);
+      if (
+        errMsg.includes("Failed to connect") ||
+        errMsg.includes("ECONNREFUSED") ||
+        errMsg.includes("ENOTFOUND") ||
+        errMsg.includes("Could not perform discovery")
+      ) {
+        console.warn("[build-graph] Warning: Neo4j server is unreachable. Skipping Neo4j graph indexing:", errMsg);
+        return { nodesCreated: 0, relationshipsCreated: 0, filesProcessed: 0 };
+      }
+      throw connErr;
+    }
 
     for (const fact of params.facts) {
       const filePath = fact.filePath;

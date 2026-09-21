@@ -178,6 +178,8 @@ export function RepoConnector() {
 
         {/* Connect Form */}
         {(() => {
+          const connectedFullNames = new Set(connectedRepos.map((r) => r.fullName));
+          const unconnectedRepos = availableRepos.filter((r) => !connectedFullNames.has(r.fullName));
           const selectedTargetRepo = availableRepos.find((r) => r.fullName === selectedRepoFullName);
           const isSelectedAccessible = selectedTargetRepo ? selectedTargetRepo.accessible !== false : true;
 
@@ -187,15 +189,17 @@ export function RepoConnector() {
                 <select
                   value={selectedRepoFullName}
                   onChange={(e) => setSelectedRepoFullName(e.target.value)}
-                  disabled={isConnecting || availableRepos.length === 0}
+                  disabled={isConnecting || unconnectedRepos.length === 0}
                   className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-border text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
                 >
                   <option value="">
                     {availableRepos.length === 0
-                      ? "No available GitHub repositories found"
+                      ? "No GitHub repositories found (Sign Out & Sign In to sync token)"
+                      : unconnectedRepos.length === 0
+                      ? "All available GitHub repositories are already connected"
                       : "-- Select a GitHub Repository to Connect --"}
                   </option>
-                  {availableRepos.map((repo) => {
+                  {unconnectedRepos.map((repo) => {
                     const isAccessible = repo.accessible !== false;
                     return (
                       <option key={repo.fullName} value={repo.fullName}>

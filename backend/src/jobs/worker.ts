@@ -6,7 +6,7 @@ import { buildGraph } from "./pipeline/build-graph";
 import { generateEmbeddings } from "./pipeline/generate-embeddings";
 import { cleanupDeletedFiles } from "./pipeline/incremental-cleanup";
 import { getInstallationAccessToken } from "../lib/github-app";
-import { prisma } from "../lib/prisma";
+import { prisma, withRetry } from "../lib/prisma";
 import { connection, IndexRepoJobPayload } from "./queue";
 
 
@@ -14,31 +14,41 @@ export async function processIndexingJob(job: Job<IndexRepoJobPayload>): Promise
   const { indexingJobId, connectedRepoId } = job.data;
 
   // 1. Fetch repo metadata from Postgres
-  const repo = await prisma.connectedRepo.findUnique({
-    where: { id: connectedRepoId },
-  });
+  const repo = await withRetry(() =>
+    prisma.connectedRepo.findUnique({
+      where: { id: connectedRepoId },
+    })
+  );
 
   if (!repo) {
-    await prisma.indexingJob.update({
-      where: { id: indexingJobId },
-      data: {
-        status: "FAILED",
-        errorMessage: `ConnectedRepo with id ${connectedRepoId} not found`,
-        finishedAt: new Date(),
-      },
-    });
+    try {
+      await withRetry(() =>
+        prisma.indexingJob.update({
+          where: { id: indexingJobId },
+          data: {
+            status: "FAILED",
+            errorMessage: `ConnectedRepo with id ${connectedRepoId} not found`,
+            finishedAt: new Date(),
+          },
+        })
+      );
+    } catch {
+      // Stale job record in Redis no longer exists in DB
+    }
     throw new Error(`ConnectedRepo with id ${connectedRepoId} not found`);
   }
 
   // 2. Mark status RUNNING
-  await prisma.indexingJob.update({
-    where: { id: indexingJobId },
-    data: {
-      status: "RUNNING",
-      progressMessage: "Cloning repository...",
-      startedAt: new Date(),
-    },
-  });
+  await withRetry(() =>
+    prisma.indexingJob.update({
+      where: { id: indexingJobId },
+      data: {
+        status: "RUNNING",
+        progressMessage: "Cloning repository...",
+        startedAt: new Date(),
+      },
+    })
+  );
 
   let workspacePath = "";
 
@@ -65,15 +75,17 @@ export async function processIndexingJob(job: Job<IndexRepoJobPayload>): Promise
       fetchResult.commitSha !== "unknown" &&
       repo.lastIndexedCommitSha === fetchResult.commitSha
     ) {
-      await prisma.indexingJob.update({
-        where: { id: indexingJobId },
-        data: {
-          status: "SUCCEEDED",
-          commitSha: fetchResult.commitSha,
-          progressMessage: "Repository is up to date (no changes detected).",
-          finishedAt: new Date(),
-        },
-      });
+      await withRetry(() =>
+        prisma.indexingJob.update({
+          where: { id: indexingJobId },
+          data: {
+            status: "SUCCEEDED",
+            commitSha: fetchResult.commitSha,
+            progressMessage: "Repository is up to date (no changes detected).",
+            finishedAt: new Date(),
+          },
+        })
+      );
       return;
     }
 
@@ -111,23 +123,27 @@ export async function processIndexingJob(job: Job<IndexRepoJobPayload>): Promise
     }
 
     // Stage 2: Parse Files (Step 6)
-    await prisma.indexingJob.update({
-      where: { id: indexingJobId },
-      data: {
-        commitSha: fetchResult.commitSha,
-        progressMessage: `Parsing ${filesToProcess.length} changed source files...`,
-      },
-    });
+    await withRetry(() =>
+      prisma.indexingJob.update({
+        where: { id: indexingJobId },
+        data: {
+          commitSha: fetchResult.commitSha,
+          progressMessage: `Parsing ${filesToProcess.length} changed source files...`,
+        },
+      })
+    );
 
     const parseResult = await parseFiles({ files: filesToProcess });
 
     // Stage 3: Build Neo4j Graph (Step 7)
-    await prisma.indexingJob.update({
-      where: { id: indexingJobId },
-      data: {
-        progressMessage: "Building structural Neo4j code graph...",
-      },
-    });
+    await withRetry(() =>
+      prisma.indexingJob.update({
+        where: { id: indexingJobId },
+        data: {
+          progressMessage: "Building structural Neo4j code graph...",
+        },
+      })
+    );
 
     await buildGraph({
       repoId: connectedRepoId,
@@ -136,12 +152,14 @@ export async function processIndexingJob(job: Job<IndexRepoJobPayload>): Promise
     });
 
     // Stage 4: Generate Embeddings (Step 8)
-    await prisma.indexingJob.update({
-      where: { id: indexingJobId },
-      data: {
-        progressMessage: "Generating semantic vector embeddings...",
-      },
-    });
+    await withRetry(() =>
+      prisma.indexingJob.update({
+        where: { id: indexingJobId },
+        data: {
+          progressMessage: "Generating semantic vector embeddings...",
+        },
+      })
+    );
 
     await generateEmbeddings({
       repoId: connectedRepoId,
@@ -150,31 +168,37 @@ export async function processIndexingJob(job: Job<IndexRepoJobPayload>): Promise
 
     // Update lastIndexedCommitSha on ConnectedRepo
     if (fetchResult.commitSha && fetchResult.commitSha !== "unknown") {
-      await prisma.connectedRepo.update({
-        where: { id: connectedRepoId },
-        data: { lastIndexedCommitSha: fetchResult.commitSha },
-      });
+      await withRetry(() =>
+        prisma.connectedRepo.update({
+          where: { id: connectedRepoId },
+          data: { lastIndexedCommitSha: fetchResult.commitSha },
+        })
+      );
     }
 
     // Mark status SUCCEEDED
-    await prisma.indexingJob.update({
-      where: { id: indexingJobId },
-      data: {
-        status: "SUCCEEDED",
-        progressMessage: "Indexing completed successfully.",
-        finishedAt: new Date(),
-      },
-    });
+    await withRetry(() =>
+      prisma.indexingJob.update({
+        where: { id: indexingJobId },
+        data: {
+          status: "SUCCEEDED",
+          progressMessage: "Indexing completed successfully.",
+          finishedAt: new Date(),
+        },
+      })
+    );
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Pipeline execution failed";
-    await prisma.indexingJob.update({
-      where: { id: indexingJobId },
-      data: {
-        status: "FAILED",
-        errorMessage,
-        finishedAt: new Date(),
-      },
-    });
+    await withRetry(() =>
+      prisma.indexingJob.update({
+        where: { id: indexingJobId },
+        data: {
+          status: "FAILED",
+          errorMessage,
+          finishedAt: new Date(),
+        },
+      })
+    );
     throw err;
   } finally {
     if (workspacePath) {
