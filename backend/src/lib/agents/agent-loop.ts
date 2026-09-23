@@ -113,7 +113,7 @@ export async function runToolCallingAgent(
             const matches = await searchSemantic(params.connectedRepoId, queryVector, 5);
             if (matches.length > 0) {
               const snippets = matches.map((m: { filePath: string; contentChunk: string }) => `- \`${m.filePath}\`: ${m.contentChunk}`).join("\n");
-              llmOutput = `### Analysis for: "${params.question}"\n\nBased on semantic vector search over your repository, here are the key relevant code definitions:\n\n${snippets}\n\n> 💡 **Tip:** Add \`OPENAI_API_KEY\` or \`LLM_API_KEY\` to \`backend/.env\` to enable full multi-agent LLM reasoning and code synthesis.`;
+              llmOutput = `### Analysis for: "${params.question}"\n\nBased on semantic vector search over your repository, here are the key relevant code definitions:\n\n${snippets}\n\n> 💡 **Tip:** Ensure a valid LLM API key (\`GROQ_API_KEY\`, \`OPENAI_API_KEY\`, or \`LLM_API_KEY\`) and active model are configured in \`backend/.env\` to enable full multi-agent LLM reasoning.`;
             }
           }
         } catch {

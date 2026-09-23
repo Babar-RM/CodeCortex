@@ -22,6 +22,7 @@ export async function callLLMCompletion(
     process.env.LLM_API_KEY;
 
   if (!apiKey) {
+    console.warn("[LLM] Warning: No GROQ_API_KEY or OPENAI_API_KEY set in backend/.env. Falling back to vector search RAG.");
     return "";
   }
 
@@ -36,7 +37,7 @@ export async function callLLMCompletion(
     options.model ||
     process.env.GROQ_MODEL ||
     process.env.LLM_MODEL ||
-    (isGroq ? "llama-3.3-70b-versatile" : "gpt-3.5-turbo");
+    (isGroq ? "openai/gpt-oss-120b" : "gpt-3.5-turbo");
 
   const messages: { role: string; content: string }[] = [];
   if (options.systemPrompt) {
@@ -44,12 +45,14 @@ export async function callLLMCompletion(
   }
   messages.push({ role: "user", content: prompt });
 
+  console.log(`[LLM] Invoking ${isGroq ? "Groq API" : "LLM API"} using model: '${model}'...`);
+
   try {
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey.trim()}`,
       },
       body: JSON.stringify({
         model,
@@ -59,11 +62,16 @@ export async function callLLMCompletion(
     });
 
     if (response.ok) {
-      const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
-      return data.choices?.[0]?.message?.content?.trim() || "";
+      const data = (await response.json()) as { choices?: { message?: { content?: string; reasoning?: string } }[] };
+      const msg = data.choices?.[0]?.message;
+      const resultText = (msg?.content || msg?.reasoning || "").trim();
+      if (resultText) {
+        console.log(`[LLM] Received completion from ${isGroq ? "Groq" : "LLM"} (${model})`);
+      }
+      return resultText;
     } else {
       const errText = await response.text();
-      console.warn(`[LLM] API call returned status ${response.status}:`, errText);
+      console.warn(`[LLM] API call failed with status ${response.status}:`, errText);
     }
   } catch (err: unknown) {
     console.error("[LLM] Exception calling LLM API:", err);
