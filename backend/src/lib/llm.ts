@@ -15,6 +15,11 @@ export async function callLLMCompletion(
   prompt: string,
   options: LLMCompletionOptions = {}
 ): Promise<string> {
+  // Short-circuit network calls during unit test runs to ensure fast, deterministic offline execution
+  if (process.env.NODE_ENV === "test" && !process.env.TEST_ENABLE_REAL_LLM) {
+    return "";
+  }
+
   const apiKey =
     process.env.GROQ_API_KEY ||
     process.env.OPENAI_API_KEY ||

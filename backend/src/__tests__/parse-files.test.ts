@@ -82,27 +82,29 @@ describe("Pipeline Stage 2: parseFiles (RFC 0006)", () => {
     await fs.promises.writeFile(file1Path, "function good() {}");
     await fs.promises.writeFile(file2Path, "syntax error");
 
-    vi.spyOn(parserClient, "parseFileWithService").mockImplementation(async (payload) => {
-      if (payload.filePath === "good.ts") {
+    vi.spyOn(parserClient, "parseBatchWithService").mockImplementation(async (payload) => {
+      return payload.files.map((f) => {
+        if (f.filePath === "good.ts") {
+          return {
+            filePath: "good.ts",
+            language: "typescript",
+            functions: [{ name: "good", startLine: 1, endLine: 1, params: [] }],
+            classes: [],
+            imports: [],
+            calls: [],
+            error: null,
+          };
+        }
         return {
-          filePath: "good.ts",
-          language: "typescript",
-          functions: [{ name: "good", startLine: 1, endLine: 1, params: [] }],
+          filePath: "bad.js",
+          language: "javascript",
+          functions: [],
           classes: [],
           imports: [],
           calls: [],
-          error: null,
+          error: "Syntax error in file",
         };
-      }
-      return {
-        filePath: "bad.js",
-        language: "javascript",
-        functions: [],
-        classes: [],
-        imports: [],
-        calls: [],
-        error: "Syntax error in file",
-      };
+      });
     });
 
     const mockFiles = [
