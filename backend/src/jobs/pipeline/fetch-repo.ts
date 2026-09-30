@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
-import { pipeline as streamPipeline } from "stream/promises";
+import { Readable } from "stream";
 import simpleGit from "simple-git";
 
 export interface FetchRepoParams {
@@ -164,7 +164,7 @@ async function fetchViaTarball(params: {
 
   // Stream decompress and extract
   const gunzip = zlib.createGunzip();
-  const nodeStream = require("stream").Readable.fromWeb(response.body);
+  const nodeStream = Readable.fromWeb(response.body as unknown as Parameters<typeof Readable.fromWeb>[0]);
 
   let topLevelDir = "";
 

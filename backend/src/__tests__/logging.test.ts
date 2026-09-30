@@ -9,7 +9,7 @@ import { runMultiAgentPipeline } from "../lib/agents/orchestrator";
 import { runToolCallingAgent } from "../lib/agents/agent-loop";
 
 vi.mock("../lib/prisma", () => ({
-  withRetry: (fn: any) => fn(),
+  withRetry: (fn: () => unknown) => fn(),
   prisma: {
     indexingJob: {
       findFirst: vi.fn().mockResolvedValue({ commitSha: "sha123" }),

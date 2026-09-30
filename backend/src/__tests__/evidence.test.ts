@@ -5,7 +5,7 @@ import * as plannerModule from "../lib/agents/planner";
 import * as explainerModule from "../lib/agents/explainer";
 
 vi.mock("../lib/prisma", () => ({
-  withRetry: (fn: any) => fn(),
+  withRetry: (fn: () => unknown) => fn(),
   prisma: {
     insightCache: {
       create: vi.fn(),

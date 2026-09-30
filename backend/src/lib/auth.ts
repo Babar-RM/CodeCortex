@@ -56,4 +56,4 @@ export const authConfig: ExpressAuthConfig = {
       return `${frontendOrigin}/dashboard`;
     },
   },
-};
+} as unknown as ExpressAuthConfig;

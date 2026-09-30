@@ -12,7 +12,7 @@ vi.mock("../lib/parser-client", () => ({
 }));
 
 vi.mock("../lib/prisma", () => ({
-  withRetry: (fn: any) => fn(),
+  withRetry: (fn: () => unknown) => fn(),
   prisma: {
     $executeRaw: vi.fn().mockResolvedValue(1),
     $queryRaw: vi.fn().mockResolvedValue([]),

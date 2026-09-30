@@ -28,8 +28,8 @@ async function clearAllDatabases() {
     console.log(`   - Deleted ${deletedRepos.count} ConnectedRepo records`);
     console.log(`   - Deleted ${deletedUsers.count} User records`);
     console.log("   ✅ PostgreSQL successfully cleared.\n");
-  } catch (err: any) {
-    console.error("   ❌ Failed to clear PostgreSQL:", err.message || err);
+  } catch (err: unknown) {
+    console.error("   ❌ Failed to clear PostgreSQL:", (err as Error).message || err);
   }
 
   // 2. Neo4j Graph Database Cleanup
@@ -43,8 +43,8 @@ async function clearAllDatabases() {
     await closeNeo4jDriver();
     console.log(`   - Deleted ${count} Neo4j nodes and all associated relationships`);
     console.log("   ✅ Neo4j successfully cleared.\n");
-  } catch (err: any) {
-    console.error("   ❌ Failed to clear Neo4j:", err.message || err);
+  } catch (err: unknown) {
+    console.error("   ❌ Failed to clear Neo4j:", (err as Error).message || err);
   }
 
   // 3. Redis Queue & Cache Cleanup
@@ -55,8 +55,8 @@ async function clearAllDatabases() {
     await closeQueue();
     console.log("   - Flushed all Redis keys & BullMQ job queues");
     console.log("   ✅ Redis successfully cleared.\n");
-  } catch (err: any) {
-    console.error("   ❌ Failed to clear Redis:", err.message || err);
+  } catch (err: unknown) {
+    console.error("   ❌ Failed to clear Redis:", (err as Error).message || err);
   }
 
   console.log("All requested databases have been completely wiped.");

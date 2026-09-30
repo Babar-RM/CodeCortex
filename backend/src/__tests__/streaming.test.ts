@@ -17,7 +17,7 @@ vi.mock("@auth/express", async () => {
 });
 
 vi.mock("../lib/prisma", () => ({
-  withRetry: (fn: any) => fn(),
+  withRetry: (fn: () => unknown) => fn(),
   prisma: {
     user: { upsert: vi.fn() },
     connectedRepo: { findFirst: vi.fn() },

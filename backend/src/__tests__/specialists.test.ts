@@ -14,7 +14,7 @@ import { runReviewerAgent } from "../lib/agents/reviewer";
 import { runRefactorerAgent } from "../lib/agents/refactorer";
 
 vi.mock("../lib/prisma", () => ({
-  withRetry: (fn: any) => fn(),
+  withRetry: (fn: () => unknown) => fn(),
   prisma: {
     codeEmbedding: {
       findMany: vi.fn().mockImplementation(async (args: { where?: { filePath?: { contains?: string } } }) => {

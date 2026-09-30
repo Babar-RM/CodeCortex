@@ -9,7 +9,7 @@ import * as parserClient from "../lib/parser-client";
 import { prisma } from "../lib/prisma";
 
 vi.mock("../lib/prisma", () => ({
-  withRetry: (fn: any) => fn(),
+  withRetry: (fn: () => unknown) => fn(),
   prisma: {
     codeEmbedding: {
       create: vi.fn().mockImplementation(async (args) => ({

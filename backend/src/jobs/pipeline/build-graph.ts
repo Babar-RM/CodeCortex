@@ -117,18 +117,18 @@ export async function buildGraph(params: BuildGraphParams): Promise<BuildGraphRe
     // -----------------------------------------------------------------------
     // Helper: Run an UNWIND query in chunks of UNWIND_BATCH_SIZE
     // -----------------------------------------------------------------------
-    async function unwindBatch<T extends object>(
+    const unwindBatch = async <T extends object>(
       rows: T[],
       cypher: string,
       staticParams: Record<string, unknown> = {}
-    ): Promise<{ nodes: number; rels: number }> {
+    ): Promise<{ nodes: number; rels: number }> => {
       for (let i = 0; i < rows.length; i += UNWIND_BATCH_SIZE) {
         const batch = rows.slice(i, i + UNWIND_BATCH_SIZE);
         await session.run(cypher, { ...staticParams, batch });
       }
       // Approximate counts from input rows (avoids QueryStatistics API version differences)
       return { nodes: rows.length, rels: rows.length };
-    }
+    };
 
     // -----------------------------------------------------------------------
     // 1. Bulk MERGE File nodes + :CONTAINS edges

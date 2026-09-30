@@ -9,7 +9,7 @@ import * as generateEmbeddingsModule from "../jobs/pipeline/generate-embeddings"
 import { Job } from "bullmq";
 
 vi.mock("../lib/prisma", () => ({
-  withRetry: (fn: any) => fn(),
+  withRetry: (fn: () => unknown) => fn(),
   prisma: {
     connectedRepo: {
       findUnique: vi.fn(),

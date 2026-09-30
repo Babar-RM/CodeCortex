@@ -232,7 +232,9 @@ export async function writeInsightCache(
     // If vector assignment fails, clean up record so no null-embedding row remains
     try {
       await prisma.insightCache.delete({ where: { id: record.id } });
-    } catch {}
+    } catch {
+      // ignore cleanup error
+    }
     return "";
   }
 

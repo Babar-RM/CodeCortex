@@ -19,7 +19,7 @@ vi.mock("../middleware/rateLimit", () => ({
 }));
 
 vi.mock("../lib/prisma", () => ({
-  withRetry: (fn: any) => fn(),
+  withRetry: (fn: () => unknown) => fn(),
   prisma: {
     user: {
       upsert: vi.fn(),

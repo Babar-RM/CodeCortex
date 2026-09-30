@@ -11,21 +11,22 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const email = session.user?.email || null;
+    const githubId = session.githubId;
     const githubLogin = session.githubLogin;
+    const email = session.user?.email || null;
     const avatarUrl = session.avatarUrl || null;
 
     // Upsert user profile on every authenticated request to keep data fresh
     const user = await withRetry(() =>
       prisma.user.upsert({
-        where: { githubId: session.githubId },
+        where: { githubId },
         update: {
           githubLogin,
           avatarUrl,
           email,
         },
         create: {
-          githubId: session.githubId,
+          githubId,
           githubLogin,
           avatarUrl,
           email,

@@ -183,7 +183,7 @@ function sanitizeFinalAnswer(answer: string): string {
   clean = clean.replace(/^TOOL:.*$/gm, "");
 
   // Strip Critic revision noise
-  clean = clean.replace(/CRITIC REVISION FEEDBACK:[\s\S]*?(?=\n##|\n---|\Z)/gi, "");
+  clean = clean.replace(/CRITIC REVISION FEEDBACK:[\s\S]*?(?=\n##|\n---|$)/gi, "");
 
   // Strip \"[Warning: N structural claim(s)...]\" caveats that appear in isolation
   clean = clean.replace(/\[Warning:[^\]]*structural claim[^\]]*\]\s*/gi, "");
@@ -279,7 +279,9 @@ export function parseToolCallRequest(
         try {
           const parsed = JSON.parse(jsonObjMatch[0]) as Record<string, unknown>;
           return { toolName: rawToolName, args: parsed };
-        } catch {}
+        } catch {
+          // ignore parse error
+        }
       }
     }
 
