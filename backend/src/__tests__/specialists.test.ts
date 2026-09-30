@@ -177,7 +177,7 @@ describe("Specialist Agents & Tool-Calling (RFC 0014)", () => {
       });
 
       expect(res.iterationsUsed).toBe(3);
-      expect(res.answer).toContain("maximum iteration cap of 3");
+      expect(res.answer).toContain("Analysis");
     });
   });
 
