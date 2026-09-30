@@ -34,19 +34,19 @@ describe("Pipeline Stage 2: parseFiles (RFC 0006)", () => {
     await fs.promises.writeFile(file1Path, "function main() {}");
     await fs.promises.writeFile(file2Path, "class App {}");
 
-    vi.spyOn(parserClient, "parseFileWithService").mockImplementation(async (payload) => {
-      if (payload.filePath === "index.ts") {
-        return {
-          filePath: "index.ts",
-          language: "typescript",
-          functions: [{ name: "main", startLine: 1, endLine: 1, params: [] }],
-          classes: [],
-          imports: [],
-          calls: [],
-          error: null,
-        };
-      }
-      return {
+    // parse-files.ts calls parseBatchWithService first (RFC 0030 batch path).
+    // Mock that function so no real HTTP call is made in CI.
+    vi.spyOn(parserClient, "parseBatchWithService").mockResolvedValue([
+      {
+        filePath: "index.ts",
+        language: "typescript",
+        functions: [{ name: "main", startLine: 1, endLine: 1, params: [] }],
+        classes: [],
+        imports: [],
+        calls: [],
+        error: null,
+      },
+      {
         filePath: "app.js",
         language: "javascript",
         functions: [],
@@ -54,8 +54,8 @@ describe("Pipeline Stage 2: parseFiles (RFC 0006)", () => {
         imports: [],
         calls: [],
         error: null,
-      };
-    });
+      },
+    ]);
 
     const mockFiles = [
       { relativePath: "index.ts", absolutePath: file1Path, extension: ".ts", sizeBytes: 20 },
