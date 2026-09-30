@@ -44,7 +44,7 @@ export async function processIndexingJob(job: Job<IndexRepoJobPayload>): Promise
       where: { id: indexingJobId },
       data: {
         status: "RUNNING",
-        progressMessage: "Cloning repository...",
+        progressMessage: "Fetching repository (trying tarball → blobless clone → shallow clone)...",
         startedAt: new Date(),
       },
     })
@@ -134,13 +134,14 @@ export async function processIndexingJob(job: Job<IndexRepoJobPayload>): Promise
     );
 
     const parseResult = await parseFiles({ files: filesToProcess });
+    console.log(`[worker] Parsed ${parseResult.totalParsedFiles} files (${parseResult.failedFiles} failed).`);
 
     // Stage 3: Build Neo4j Graph (Step 7)
     await withRetry(() =>
       prisma.indexingJob.update({
         where: { id: indexingJobId },
         data: {
-          progressMessage: "Building structural Neo4j code graph...",
+          progressMessage: `Building Neo4j code graph (${parseResult.totalParsedFiles} files, bulk UNWIND mode)...`,
         },
       })
     );

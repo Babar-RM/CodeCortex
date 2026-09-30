@@ -1,7 +1,8 @@
-"use me";
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ChatMessage, api, RateLimitError } from "@/lib/api";
 import { useAgentStream, AgentStreamEvent } from "@/lib/useAgentStream";
 import { EvidencePanel } from "./EvidencePanel";
@@ -271,13 +272,92 @@ export function ChatThread({
                 {/* Message Bubble */}
                 <div className="space-y-1 max-w-2xl">
                   <div
-                    className={`p-4 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
+                    className={`p-4 rounded-2xl text-sm leading-relaxed ${
                       isUser
-                        ? "bg-primary-600 text-white rounded-tr-none shadow-lg shadow-primary-600/20"
-                        : "bg-surface border border-border/80 text-slate-200 rounded-tl-none shadow-md"
+                        ? "bg-primary-600 text-white rounded-tr-none shadow-lg shadow-primary-600/20 whitespace-pre-wrap"
+                        : "bg-surface border border-border/80 text-slate-200 rounded-tl-none shadow-md prose-chat"
                     }`}
                   >
-                    {msg.content}
+                    {isUser ? (
+                      msg.content
+                    ) : (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          h1: ({ children }) => (
+                            <h1 className="text-lg font-bold text-white mb-3 mt-1 border-b border-slate-700 pb-1">{children}</h1>
+                          ),
+                          h2: ({ children }) => (
+                            <h2 className="text-base font-semibold text-cyan-300 mb-2 mt-4">{children}</h2>
+                          ),
+                          h3: ({ children }) => (
+                            <h3 className="text-sm font-semibold text-slate-200 mb-1.5 mt-3">{children}</h3>
+                          ),
+                          p: ({ children }) => (
+                            <p className="mb-3 last:mb-0 text-slate-200 leading-relaxed">{children}</p>
+                          ),
+                          ul: ({ children }) => (
+                            <ul className="mb-3 ml-4 space-y-1 list-disc marker:text-cyan-500">{children}</ul>
+                          ),
+                          ol: ({ children }) => (
+                            <ol className="mb-3 ml-4 space-y-1 list-decimal marker:text-cyan-500">{children}</ol>
+                          ),
+                          li: ({ children }) => (
+                            <li className="text-slate-300 leading-relaxed">{children}</li>
+                          ),
+                          code: ({ inline, children, ...props }: { inline?: boolean; children?: React.ReactNode; className?: string }) =>
+                            inline ? (
+                              <code className="bg-slate-900 text-cyan-300 px-1.5 py-0.5 rounded text-xs font-mono border border-slate-700" {...props}>
+                                {children}
+                              </code>
+                            ) : (
+                              <code className="block bg-slate-950 text-green-300 p-3 rounded-lg text-xs font-mono overflow-x-auto border border-slate-800 my-2" {...props}>
+                                {children}
+                              </code>
+                            ),
+                          pre: ({ children }) => (
+                            <pre className="bg-slate-950 rounded-lg overflow-x-auto my-3 border border-slate-800">{children}</pre>
+                          ),
+                          strong: ({ children }) => (
+                            <strong className="font-semibold text-white">{children}</strong>
+                          ),
+                          em: ({ children }) => (
+                            <em className="italic text-slate-300">{children}</em>
+                          ),
+                          blockquote: ({ children }) => (
+                            <blockquote className="border-l-4 border-cyan-500 pl-3 my-2 text-slate-400 italic">{children}</blockquote>
+                          ),
+                          hr: () => (
+                            <hr className="my-4 border-slate-700" />
+                          ),
+                          table: ({ children }) => (
+                            <div className="overflow-x-auto my-3">
+                              <table className="w-full text-xs border-collapse border border-slate-700">{children}</table>
+                            </div>
+                          ),
+                          thead: ({ children }) => (
+                            <thead className="bg-slate-900">{children}</thead>
+                          ),
+                          th: ({ children }) => (
+                            <th className="border border-slate-700 px-3 py-1.5 text-left font-semibold text-cyan-300">{children}</th>
+                          ),
+                          td: ({ children }) => (
+                            <td className="border border-slate-700 px-3 py-1.5 text-slate-300">{children}</td>
+                          ),
+                          tr: ({ children }) => (
+                            <tr className="even:bg-slate-900/40">{children}</tr>
+                          ),
+                          a: ({ href, children }) => (
+                            <a href={href} target="_blank" rel="noopener noreferrer"
+                              className="text-cyan-400 underline underline-offset-2 hover:text-cyan-200">
+                              {children}
+                            </a>
+                          ),
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    )}
                   </div>
 
                   {!isUser && msg.evidence && msg.evidence.length > 0 && (

@@ -9,6 +9,8 @@ import { requireAuth } from "./middleware/requireAuth";
 import { reposRouter } from "./routes/repos";
 import { chatRouter } from "./routes/chat";
 
+import { ensurePgVectorColumns } from "./lib/prisma";
+
 export const app: Express = express();
 const port = process.env.PORT || 4000;
 const frontendOrigin = process.env.FRONTEND_ORIGIN || "http://localhost:3000";
@@ -50,5 +52,6 @@ app.use("/api/chat", chatRouter);
 if (process.env.NODE_ENV !== "test") {
   app.listen(port, () => {
     console.log(`Backend API server running on port ${port}`);
+    ensurePgVectorColumns().catch(() => {});
   });
 }

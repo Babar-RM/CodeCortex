@@ -43,6 +43,20 @@ class ParseResponse(BaseModel):
     error: str | None = Field(default=None, description="Syntax or processing error message if any")
 
 
+class FileParseItem(BaseModel):
+    file_path: str = Field(..., description="Relative file path within repository")
+    content: str = Field(..., description="Source code text content")
+    language: str = Field(..., description="Language identifier (javascript, typescript)")
+
+
+class BatchParseRequest(BaseModel):
+    files: list[FileParseItem] = Field(..., description="Array of files to parse in a single request")
+
+
+class BatchParseResponse(BaseModel):
+    results: list[ParseResponse] = Field(..., description="Parsed facts for each file, in order")
+
+
 class EmbedRequest(BaseModel):
     texts: list[str] = Field(..., description="Array of text chunks or symbol descriptions to embed")
 

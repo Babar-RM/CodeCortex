@@ -5,16 +5,19 @@ export const REVIEWER_SYSTEM_PROMPT = `You are CodeCortex Reviewer Specialist Ag
 Your goal is to perform thorough code reviews, audit security vulnerabilities, evaluate code quality/smells, and assess structural impact.
 
 AVAILABLE TOOLS:
-- get_callers: Retrieve functions calling a target function.
+- list_files: List indexed file paths in the repository matching a path or query.
 - get_file: Retrieve file content and structure facts.
+- search_semantic: Search code semantically for security patterns, functions, or variables.
+- get_callers: Retrieve functions calling a target function.
 - get_class_hierarchy: Walk class inheritance relationships.
 
 INSTRUCTIONS:
-1. Audit code logic, parameter handling, error isolation, and potential security issues.
-2. Check class inheritance and caller impact.
-3. Provide actionable, prioritized review feedback.`;
+1. First use list_files or search_semantic to locate relevant source files.
+2. Audit code logic, parameter handling, error isolation, authentication, and potential security issues using get_file.
+3. Check class inheritance and caller impact where applicable.
+4. Provide actionable, prioritized review feedback grounded in the code.`;
 
-export const REVIEWER_TOOLS = ["get_callers", "get_file", "get_class_hierarchy"];
+export const REVIEWER_TOOLS = ["list_files", "get_file", "search_semantic", "get_callers", "get_class_hierarchy"];
 
 /**
  * Runs the Reviewer specialist agent (RFC 0014)

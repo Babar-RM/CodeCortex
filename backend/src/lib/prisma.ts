@@ -50,3 +50,19 @@ export async function withRetry<T>(
   }
   throw new Error("withRetry: exhausted all retries");
 }
+
+/**
+ * Ensures pgvector extension is enabled and vector(384) columns exist on code_embeddings and insight_cache tables.
+ */
+export async function ensurePgVectorColumns(): Promise<void> {
+  try {
+    await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS vector;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE code_embeddings ADD COLUMN IF NOT EXISTS embedding vector(384);`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE insight_cache ADD COLUMN IF NOT EXISTS question_embedding vector(384);`);
+    console.log("[prisma] pgvector extension and vector(384) columns ensured.");
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.warn(`[prisma] Warning: Could not ensure vector columns (${errorMsg})`);
+  }
+}
+

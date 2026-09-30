@@ -232,6 +232,10 @@ All core decisions are prospectively documented in `docs/rfcs/`:
 - **Phase 4 (0017–0019)**: Insight cache, incremental commit-diff re-indexing, evidence citation contracts.
 - **Phase 5 (0020–0023)**: Rate limiting & token budgets, RBAC security, structured Pino logging, automated CI integration tests.
 - **Phase 6 (0024–0029)**: Real-time dashboard indexing visualizer, chat UI, SSE event consumer, evidence rendering, error state UI, GitHub App setup.
+- **Performance & Ingestion Hardening (0030)**: Large repository ingestion strategy, direct GitHub tarball archive streaming, batch parsing API, and bulk Cypher graph unwinding.
+- **Agent Response Quality & Formatting (0031)**: Mandatory final synthesis LLM pass, trace leakage elimination, structured fallback formatting, and broad query handling.
+
+
 
 ---
 

@@ -1,5 +1,9 @@
 from fastapi import FastAPI
-from app.schemas import ParseRequest, ParseResponse, EmbedRequest, EmbedResponse
+from app.schemas import (
+    ParseRequest, ParseResponse,
+    BatchParseRequest, BatchParseResponse,
+    EmbedRequest, EmbedResponse,
+)
 from app.parsers.javascript import parse_js_ts_file
 from app.embeddings import generate_embeddings
 
@@ -42,4 +46,21 @@ def embed_texts(payload: EmbedRequest) -> EmbedResponse:
         return EmbedResponse(embeddings=vectors)
     except Exception as e:
         return EmbedResponse(embeddings=[], error=str(e))
+
+
+@app.post("/parse-batch", response_model=BatchParseResponse)
+def parse_files_batch(payload: BatchParseRequest) -> BatchParseResponse:
+    """Batch parse multiple files in a single HTTP round-trip (RFC 0030)."""
+    results = []
+    for item in payload.files:
+        results.append(
+            parse_file(
+                ParseRequest(
+                    file_path=item.file_path,
+                    content=item.content,
+                    language=item.language,
+                )
+            )
+        )
+    return BatchParseResponse(results=results)
 

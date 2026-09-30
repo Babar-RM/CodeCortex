@@ -189,3 +189,78 @@ export async function embedTextsWithService(texts: string[]): Promise<number[][]
   }
 }
 
+// ---------------------------------------------------------------------------
+// RFC 0030: Batch parsing — call /parse-batch to reduce HTTP round-trips
+// ---------------------------------------------------------------------------
+export interface ParseBatchPayload {
+  files: Array<{ filePath: string; content: string; language: string }>;
+}
+
+interface BatchParseRawResponse {
+  results: ParserRawResponse[];
+}
+
+function mapRawToFacts(data: ParserRawResponse): ExtractedFacts {
+  return {
+    filePath: data.file_path,
+    language: data.language,
+    functions: (data.functions || []).map((f) => ({
+      name: f.name,
+      startLine: f.start_line,
+      endLine: f.end_line,
+      params: f.params || [],
+      returnType: f.return_type || null,
+    })),
+    classes: (data.classes || []).map((c) => ({
+      name: c.name,
+      startLine: c.start_line,
+      endLine: c.end_line,
+      heritage: c.heritage || [],
+    })),
+    imports: (data.imports || []).map((i) => ({
+      sourcePath: i.source_path,
+      importedSymbols: i.imported_symbols || [],
+    })),
+    calls: (data.calls || []).map((cl) => ({
+      callerName: cl.caller_name,
+      calleeName: cl.callee_name,
+      lineNumber: cl.line_number,
+    })),
+    error: data.error || null,
+  };
+}
+
+export async function parseBatchWithService(payload: ParseBatchPayload): Promise<ExtractedFacts[]> {
+  try {
+    const response = await fetch(`${PARSER_SERVICE_URL}/parse-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        files: payload.files.map((f) => ({
+          file_path: f.filePath,
+          content: f.content,
+          language: f.language,
+        })),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Parser service /parse-batch returned HTTP ${response.status}`);
+    }
+
+    const data = (await response.json()) as BatchParseRawResponse;
+    return (data.results || []).map(mapRawToFacts);
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Batch parse request failed";
+    console.warn(`[parser-client] /parse-batch error: ${errorMessage}. Falling back to sequential parsing.`);
+    return payload.files.map((f) => ({
+      filePath: f.filePath,
+      language: f.language,
+      functions: [],
+      classes: [],
+      imports: [],
+      calls: [],
+      error: errorMessage,
+    }));
+  }
+}

@@ -110,6 +110,7 @@ export async function getFile(filePath: string, repoId: string): Promise<string>
         connectedRepoId: repoId,
         filePath: {
           contains: filePath,
+          mode: "insensitive",
         },
       },
       take: 10,
@@ -204,6 +205,34 @@ export async function getClassHierarchy(
 }
 
 /**
+ * Tool: list_files(filter)
+ * Lists all indexed files in the repository, optionally matching a filter keyword or path
+ */
+export async function listFiles(filter: string, repoId: string): Promise<string> {
+  try {
+    const files = await prisma.codeEmbedding.findMany({
+      where: {
+        connectedRepoId: repoId,
+        ...(filter ? { filePath: { contains: filter, mode: "insensitive" } } : {}),
+      },
+      select: { filePath: true },
+      distinct: ["filePath"],
+      take: 25,
+    });
+
+    if (files.length === 0) {
+      return `No indexed files found matching filter '${filter}'.`;
+    }
+
+    const uniquePaths = Array.from(new Set(files.map((f) => f.filePath)));
+    return `Indexed files in repository:\n- ${uniquePaths.join("\n- ")}`;
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Database query error";
+    return `Error listing files: ${errorMsg}`;
+  }
+}
+
+/**
  * Main dispatcher to execute a tool call requested by a specialist agent
  */
 export async function executeToolCall(
@@ -213,8 +242,19 @@ export async function executeToolCall(
   customDriver?: Driver
 ): Promise<ToolResult> {
   let resultText = "";
+  let cleanToolName = toolName.trim().replace(/^(tool|tools|functions|function|repo_browser|action)\./i, "");
+  if (cleanToolName.includes(".")) {
+    const parts = cleanToolName.split(".");
+    cleanToolName = parts[parts.length - 1];
+  }
 
-  switch (toolName) {
+  switch (cleanToolName) {
+    case "list_files": {
+      const filter = String(args.filter || args.path || args.query || args.arg || "");
+      resultText = await listFiles(filter, repoId);
+      break;
+    }
+
     case "get_callers": {
       const funcName = String(args.functionName || args.name || args.arg || "");
       resultText = await getCallers(funcName, repoId, customDriver);
@@ -227,6 +267,9 @@ export async function executeToolCall(
       break;
     }
 
+    case "open_file":
+    case "read_file":
+    case "get_file_content":
     case "get_file": {
       const path = String(args.filePath || args.path || args.name || args.arg || "");
       resultText = await getFile(path, repoId);
@@ -246,7 +289,7 @@ export async function executeToolCall(
     }
 
     default:
-      resultText = `Unknown tool '${toolName}'. Available tools: get_callers, get_callees, get_file, search_semantic, get_class_hierarchy.`;
+      resultText = `Unknown tool '${toolName}'. Available tools: list_files, get_callers, get_callees, get_file, search_semantic, get_class_hierarchy.`;
       break;
   }
 

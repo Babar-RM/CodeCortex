@@ -255,7 +255,7 @@ export async function runMultiAgentPipeline(
         // Trigger revision pass with specialist
         const revisedParams = {
           ...specialistParams,
-          question: `${params.question}\n\nCRITIC REVISION FEEDBACK:\n${criticResult.feedback}`,
+          question: `${params.question}\n\n[Instruction: Please revise your answer to remove unverified claims: ${criticResult.feedback}]`,
         };
         switch (plan.type) {
           case "bug_trace":
@@ -296,13 +296,35 @@ export async function runMultiAgentPipeline(
       }
     }
 
-    const finalAnswerText = criticResult.verdict === "unverifiable"
+    let finalAnswerText = criticResult.verdict === "unverifiable"
       ? currentAnswer
       : (criticResult as { answer: string }).answer || currentAnswer;
+
+    // Sanitize any raw internal debug text or revision feedback from the final answer
+    if (finalAnswerText.includes("CRITIC REVISION FEEDBACK:")) {
+      const parts = finalAnswerText.split("CRITIC REVISION FEEDBACK:");
+      const cleaned = parts[0].trim();
+      if (cleaned.length > 0) {
+        finalAnswerText = cleaned;
+      }
+    }
+
+    // RFC 0031: Sanitize any remaining trace leakage, caveat prefixes, or debug strings
+    // before emitting the final answer to the user.
+    finalAnswerText = finalAnswerText
+      .replace(/\[Note:[^\]]*iteration cap[^\]]*\]\s*/gi, "")
+      .replace(/Content & structure for file '[^']*':\s*/gi, "")
+      .replace(/\[file\][^\n]*\n?/gi, "")
+      .replace(/Based on gathered facts, here is the best available answer to your question\.?\s*/gi, "")
+      .replace(/CRITIC REVISION FEEDBACK:[\s\S]*?(?=\n##|\n---|$)/gi, "")
+      .replace(/\[Warning:[^\]]*structural claim[^\]]*\]\s*/gi, "")
+      .replace(/\n{4,}/g, "\n\n")
+      .trim();
 
     const evidenceList: EvidenceItem[] = criticResult.verdict === "approved" ? (criticResult.evidence || []) : [];
 
     notify({ type: "answer", content: finalAnswerText, evidence: evidenceList });
+
 
     // Write to InsightCache ONLY if Critic returned "approved" verdict
     if (criticResult.verdict === "approved") {

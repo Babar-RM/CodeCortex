@@ -16,6 +16,7 @@ build/
 __pycache__/
 *.pyc
 *.pyo
+*.tsbuildinfo
 
 # Temp Workspaces & Cloned Repos (Phase 1 Pipeline)
 tmp/

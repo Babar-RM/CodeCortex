@@ -25,7 +25,35 @@ export interface WriteInsightCacheParams {
   referencedNodeIds: string[];
 }
 
-export const DEFAULT_SIMILARITY_THRESHOLD = 0.85;
+export const DEFAULT_SIMILARITY_THRESHOLD = 0.95;
+
+export function isNegativeOrIncompleteAnswer(answer: string): boolean {
+  if (!answer || answer.trim().length === 0) return true;
+  const lower = answer.toLowerCase();
+  return (
+    answer.trim().startsWith("TOOL:") ||
+    lower.includes("tool:") ||
+    lower.includes("unknown tool") ||
+    lower.includes("tool.get_file") ||
+    lower.includes("open_file(") ||
+    lower.includes("get_file(") ||
+    lower.includes("read_file(") ||
+    lower.includes("critic revision feedback:") ||
+    lower.includes("ensure a valid llm api key") ||
+    lower.includes("unable to locate") ||
+    lower.includes("cannot perform a concrete") ||
+    lower.includes("can't perform a concrete") ||
+    lower.includes("no backend code present") ||
+    lower.includes("could you please provide") ||
+    lower.includes("i'm unable") ||
+    lower.includes("i am unable") ||
+    lower.includes("no relevant code") ||
+    lower.includes("i don't have access") ||
+    lower.includes("i do not have access") ||
+    lower.includes("i could not find") ||
+    lower.includes("security review")
+  );
+}
 
 /**
  * Checks if a semantically similar, Critic-approved answer exists in the InsightCache
@@ -49,7 +77,7 @@ export async function checkInsightCache(
           answer: string;
           questionType: string;
           verifiedAtCommitSha: string;
-          distance: number;
+          distance: number | null;
         }>
       >`
         SELECT id, question, answer, question_type AS "questionType", verified_at_commit_sha AS "verifiedAtCommitSha",
@@ -57,30 +85,37 @@ export async function checkInsightCache(
         FROM insight_cache
         WHERE connected_repo_id = ${params.connectedRepoId}
           AND verified_at_commit_sha = ${params.verifiedAtCommitSha}
+          AND question_embedding IS NOT NULL
         ORDER BY question_embedding <=> ${vectorString}::vector ASC
         LIMIT 1;
       `;
 
       if (results.length > 0) {
         const topMatch = results[0];
-        const similarity = 1 - topMatch.distance;
+        if (topMatch.distance !== null && topMatch.distance !== undefined && !isNaN(topMatch.distance)) {
+          const similarity = 1 - topMatch.distance;
 
-        if (similarity >= threshold) {
-          await prisma.insightCache.update({
-            where: { id: topMatch.id },
-            data: {
-              lastServedAt: new Date(),
-              hitCount: { increment: 1 },
-            },
-          });
+          if (similarity >= threshold) {
+            if (isNegativeOrIncompleteAnswer(topMatch.answer)) {
+              return { hit: false };
+            }
 
-          return {
-            hit: true,
-            cachedAnswer: topMatch.answer,
-            questionType: topMatch.questionType,
-            insightId: topMatch.id,
-            similarity,
-          };
+            await prisma.insightCache.update({
+              where: { id: topMatch.id },
+              data: {
+                lastServedAt: new Date(),
+                hitCount: { increment: 1 },
+              },
+            });
+
+            return {
+              hit: true,
+              cachedAnswer: topMatch.answer,
+              questionType: topMatch.questionType,
+              insightId: topMatch.id,
+              similarity,
+            };
+          }
         }
       }
     } catch {
@@ -99,6 +134,9 @@ export async function checkInsightCache(
         fallbackRows[0].question.trim().toLowerCase() === params.question.trim().toLowerCase()
       ) {
         const row = fallbackRows[0];
+        if (isNegativeOrIncompleteAnswer(row.answer)) {
+          return { hit: false };
+        }
         await prisma.insightCache.update({
           where: { id: row.id },
           data: {
@@ -130,6 +168,10 @@ export async function checkInsightCache(
     );
 
     if (match) {
+      if (isNegativeOrIncompleteAnswer(match.answer)) {
+        return { hit: false };
+      }
+
       await prisma.insightCache.update({
         where: { id: match.id },
         data: {
@@ -157,8 +199,16 @@ export async function checkInsightCache(
 export async function writeInsightCache(
   params: WriteInsightCacheParams
 ): Promise<string> {
+  if (isNegativeOrIncompleteAnswer(params.answer)) {
+    return "";
+  }
   const embeddings = await embedTextsWithService([params.question]);
   const vector = embeddings[0] || [];
+
+  if (!vector || vector.length === 0) {
+    // Do not cache records if we cannot generate a valid embedding vector
+    return "";
+  }
 
   const record = await prisma.insightCache.create({
     data: {
@@ -171,17 +221,19 @@ export async function writeInsightCache(
     },
   });
 
-  if (vector.length > 0) {
-    const vectorLiteral = `[${vector.join(",")}]`;
+  const vectorLiteral = `[${vector.join(",")}]`;
+  try {
+    await prisma.$executeRaw`
+      UPDATE insight_cache
+      SET question_embedding = ${vectorLiteral}::vector
+      WHERE id = ${record.id}
+    `;
+  } catch {
+    // If vector assignment fails, clean up record so no null-embedding row remains
     try {
-      await prisma.$executeRaw`
-        UPDATE insight_cache
-        SET question_embedding = ${vectorLiteral}::vector
-        WHERE id = ${record.id}
-      `;
-    } catch {
-      // Fallback gracefully if pgvector is not available in environment
-    }
+      await prisma.insightCache.delete({ where: { id: record.id } });
+    } catch {}
+    return "";
   }
 
   return record.id;

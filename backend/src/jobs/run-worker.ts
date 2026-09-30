@@ -2,18 +2,20 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import { getNeo4jDriver, ensureGraphIndexes, closeNeo4jDriver } from "../lib/neo4j";
+import { ensurePgVectorColumns } from "../lib/prisma";
 import { indexWorker } from "./worker";
 import { closeQueue } from "./queue";
 
 export async function startWorker(): Promise<void> {
-  console.log("[Worker] Initializing Neo4j graph indexes and constraints...");
+  console.log("[Worker] Initializing Neo4j graph indexes & Postgres pgvector columns...");
   try {
+    await ensurePgVectorColumns();
     const neo4jDriver = getNeo4jDriver();
     await ensureGraphIndexes(neo4jDriver);
-    console.log("[Worker] Neo4j graph indexes initialized.");
+    console.log("[Worker] Neo4j graph indexes & vector columns initialized.");
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    console.warn(`[Worker] Warning: Neo4j index initialization skipped (${errorMessage})`);
+    console.warn(`[Worker] Warning: Index initialization skipped (${errorMessage})`);
   }
 
   console.log("[Worker] Starting BullMQ ingestion worker listening on queue 'index-repo'...");

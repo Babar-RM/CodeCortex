@@ -569,5 +569,9 @@ All RFCs will live in `docs/rfcs/`, numbered sequentially, never reused. This is
 | 0027 | Evidence and citation rendering | `EvidencePanel`, clickable cards with commit-pinned GitHub links |
 | 0028 | Rate-limit and error-state UI | `RateLimitError` detection, relative reset banner UI |
 | 0029 | Private repository / GitHub App install UI | Scope indication and GitHub App installation flow |
+| 0030 | Large repo ingestion & clone resilience | Hybrid archive streaming, blobless git fetch, FastAPI batch parsing, bulk Neo4j Cypher unwinding |
+| 0031 | Agent response synthesis & fallback formatting | Mandatory final synthesis pass, trace leakage elimination, structured fallback formatting |
+
+
 
 **Rule:** don't write RFC 0011 while RFC 0005–0009 are still unbuilt. Don't write RFC 0006 before RFC 0005 is actually implemented and checkpointed. The numbering above is the plan, not permission to jump ahead.

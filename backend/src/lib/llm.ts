@@ -47,34 +47,79 @@ export async function callLLMCompletion(
 
   console.log(`[LLM] Invoking ${isGroq ? "Groq API" : "LLM API"} using model: '${model}'...`);
 
-  try {
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey.trim()}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: options.temperature ?? 0.2,
-      }),
-    });
+  const maxRetries = 5;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey.trim()}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: options.temperature ?? 0.2,
+        }),
+      });
 
-    if (response.ok) {
-      const data = (await response.json()) as { choices?: { message?: { content?: string; reasoning?: string } }[] };
-      const msg = data.choices?.[0]?.message;
-      const resultText = (msg?.content || msg?.reasoning || "").trim();
-      if (resultText) {
-        console.log(`[LLM] Received completion from ${isGroq ? "Groq" : "LLM"} (${model})`);
+      if (response.ok) {
+        const data = (await response.json()) as { choices?: { message?: { content?: string; reasoning?: string } }[] };
+        const msg = data.choices?.[0]?.message;
+        const resultText = (msg?.content || msg?.reasoning || "").trim();
+        if (resultText) {
+          console.log(`[LLM] Received completion from ${isGroq ? "Groq" : "LLM"} (${model})`);
+        }
+        return resultText;
+      } else if (response.status === 429 && attempt < maxRetries) {
+        const errText = await response.text();
+        const match = errText.match(/Please try again in ([0-9.]+)s/i);
+        let delayMs = 4000 * attempt;
+        if (match && match[1]) {
+          const waitSec = parseFloat(match[1]);
+          if (!isNaN(waitSec)) {
+            delayMs = Math.ceil(waitSec * 1000) + 1500;
+          }
+        }
+        console.warn(`[LLM] Rate limited (429), retrying attempt ${attempt}/${maxRetries} in ${delayMs}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      } else if (response.status === 400) {
+        try {
+          const errData = (await response.json()) as { error?: { message?: string; failed_generation?: string } };
+          if (errData.error?.failed_generation) {
+            const fg = errData.error.failed_generation;
+            try {
+              const parsed = JSON.parse(fg) as { name?: string; arguments?: Record<string, unknown> };
+              const toolName = (parsed.name || "").replace(/^repo_browser\./, "");
+              const argsStr = JSON.stringify(parsed.arguments || {});
+              if (toolName) {
+                console.log(`[LLM] Recovered tool call from Groq failed_generation: TOOL: ${toolName}(${argsStr})`);
+                return `TOOL: ${toolName}(${argsStr})`;
+              }
+            } catch {
+              return fg;
+            }
+          }
+          console.warn(`[LLM] API call failed with status 400:`, JSON.stringify(errData));
+        } catch {
+          const errText = await response.text();
+          console.warn(`[LLM] API call failed with status 400:`, errText);
+        }
+        break;
+      } else {
+        const errText = await response.text();
+        console.warn(`[LLM] API call failed with status ${response.status}:`, errText);
+        break;
       }
-      return resultText;
-    } else {
-      const errText = await response.text();
-      console.warn(`[LLM] API call failed with status ${response.status}:`, errText);
+    } catch (err: unknown) {
+      console.error(`[LLM] Exception calling LLM API (attempt ${attempt}/${maxRetries}):`, err);
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+        continue;
+      }
+      break;
     }
-  } catch (err: unknown) {
-    console.error("[LLM] Exception calling LLM API:", err);
   }
 
   return "";
