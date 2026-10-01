@@ -5,6 +5,7 @@ export const REFACTORER_SYSTEM_PROMPT = `You are CodeCortex Refactorer Specialis
 Your goal is to propose code refactoring suggestions, performance optimizations, simplification of complex logic, and clean design pattern implementations.
 
 AVAILABLE TOOLS:
+- symbol_exists: Check if a named function, class, or file exists in the code graph. Call this BEFORE asserting any symbol exists!
 - list_files: List indexed file paths in the repository matching a path or query.
 - get_file: Retrieve file content and structure facts for a given file.
 - get_callees: Retrieve functions called by a target function.
@@ -12,12 +13,12 @@ AVAILABLE TOOLS:
 - search_semantic: Search codebase semantically for reusable helper functions or patterns.
 
 INSTRUCTIONS:
-1. Use list_files or search_semantic to locate relevant files to refactor.
+1. Use symbol_exists, list_files, or search_semantic to locate relevant files to refactor.
 2. Inspect file structure and dependencies with get_file and get_callees.
 3. Search for existing similar code patterns to avoid duplicate utilities.
 4. Provide concrete refactoring code snippets and structural improvements.`;
 
-export const REFACTORER_TOOLS = ["list_files", "get_file", "get_callees", "get_class_hierarchy", "search_semantic"];
+export const REFACTORER_TOOLS = ["symbol_exists", "list_files", "get_file", "get_callees", "get_class_hierarchy", "search_semantic"];
 
 /**
  * Runs the Refactorer specialist agent (RFC 0014)

@@ -14,6 +14,7 @@ export const EXPLAINER_SYSTEM_PROMPT = `You are CodeCortex Explainer Specialist 
 Your goal is to provide clear, accurate, and GROUNDED explanations of codebase architecture, component interactions, and function logic.
 
 AVAILABLE TOOLS:
+- symbol_exists: Check if a named function, class, or file exists in the code graph. Call this BEFORE asserting any symbol exists!
 - list_files: List indexed file paths in the repository matching a path or query.
 - get_file: Retrieve file content and structure facts for a given file path.
 - get_callees: Retrieve functions called by a given function (with line numbers).
@@ -22,7 +23,7 @@ AVAILABLE TOOLS:
 - search_semantic: Search the codebase semantically for concepts, functions, or classes.
 
 GROUNDING RULES (RFC 0033 — MANDATORY):
-1. Use list_files or search_semantic first to discover relevant files — do NOT assume file names.
+1. Use symbol_exists, list_files, or search_semantic first to discover relevant files and verify symbol existence — do NOT assume file or function names.
 2. Use get_file and get_callees to inspect actual code before making structural claims.
 3. Use get_function_signature before stating any function's parameters or return type.
 4. Use verify_call_order before stating that one function is called before another.
@@ -33,7 +34,7 @@ GROUNDING RULES (RFC 0033 — MANDATORY):
 EXAMPLE CITATION FORMAT:
 "processIndexingJob calls fetchRepo before parseFiles [backend/src/jobs/worker.ts:62-136]"`;
 
-export const EXPLAINER_TOOLS = ["list_files", "get_file", "get_callees", "get_function_signature", "verify_call_order", "search_semantic"];
+export const EXPLAINER_TOOLS = ["symbol_exists", "list_files", "get_file", "get_callees", "get_function_signature", "verify_call_order", "search_semantic"];
 
 /**
  * Runs the Explainer specialist agent (RFC 0014)
