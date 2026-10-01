@@ -7,42 +7,111 @@ export interface LLMCompletionOptions {
   temperature?: number;
 }
 
+// ---------------------------------------------------------------------------
+// RFC 0032 — Multi-key Groq API rotation
+// ---------------------------------------------------------------------------
+// We maintain an ordered list of Groq API keys.  Each key carries its own
+// per-key "cooldown" timestamp: when a 429 is received and the Groq
+// retry-after header (or body hint) says it will be a while, we mark that
+// key as cooled-down until that time and immediately rotate to the next one.
+// The scheduler re-enables a key automatically once its cooldown expires.
+// ---------------------------------------------------------------------------
+
+interface KeySlot {
+  key: string;
+  cooldownUntil: number; // epoch ms — 0 means "available now"
+}
+
+function buildKeyPool(): KeySlot[] {
+  const keys: string[] = [];
+
+  // Primary key
+  if (process.env.GROQ_API_KEY) keys.push(process.env.GROQ_API_KEY.trim());
+  // Secondary key (RFC 0032)
+  if (process.env.GROQ_API_KEY_2) keys.push(process.env.GROQ_API_KEY_2.trim());
+  // Allow arbitrary numbered extras: GROQ_API_KEY_3, _4 …
+  let n = 3;
+  while (process.env[`GROQ_API_KEY_${n}`]) {
+    keys.push(process.env[`GROQ_API_KEY_${n}`]!.trim());
+    n++;
+  }
+
+  return keys.filter(Boolean).map((k) => ({ key: k, cooldownUntil: 0 }));
+}
+
+// Module-level pool — lives for the process lifetime.
+// Mutated in-place so cooldown state persists across requests.
+const groqKeyPool: KeySlot[] = buildKeyPool();
+
+/** Returns the index of the first available (non-cooled-down) key, or -1. */
+function pickAvailableKey(): number {
+  const now = Date.now();
+  for (let i = 0; i < groqKeyPool.length; i++) {
+    if (groqKeyPool[i].cooldownUntil <= now) return i;
+  }
+  return -1;
+}
+
+/** Returns the earliest cooldown expiry across all keys (for logging). */
+function earliestCooldownMs(): number {
+  return Math.max(0, Math.min(...groqKeyPool.map((s) => s.cooldownUntil)) - Date.now());
+}
+
 /**
- * Unified LLM completion utility supporting Groq, OpenAI, Anthropic, or custom endpoints.
- * Prioritizes GROQ_API_KEY (free fast inference with LLaMA 3.3 70B / 8B), OPENAI_API_KEY, or LLM_API_KEY.
+ * Parse Groq's "retry after" hint from a 429 response.
+ * Groq embeds "Please try again in Xs" in the JSON body.
+ * Returns milliseconds to wait (minimum 3 s, capped at 120 s).
+ */
+async function parseRetryAfterMs(response: Response): Promise<number> {
+  const DEFAULT_MS = 5_000;
+  try {
+    const text = await response.text();
+    const match = text.match(/Please try again in ([0-9.]+)s/i);
+    if (match?.[1]) {
+      const sec = parseFloat(match[1]);
+      if (!isNaN(sec) && sec > 0) {
+        return Math.min(Math.ceil(sec * 1000) + 1500, 120_000);
+      }
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return DEFAULT_MS;
+}
+
+/**
+ * Unified LLM completion utility — RFC 0032: multi-key Groq rotation.
+ *
+ * Strategy:
+ *   1. Pick first available (non-cooled-down) key.
+ *   2. On 429: mark that key cooled-down for the retry-after window, then
+ *      immediately try the next available key — no sleep wasted.
+ *   3. If ALL keys are cooled-down: sleep until the earliest one recovers,
+ *      then retry from the top.
+ *   4. Falls back to empty string (RAG-only) if no keys are configured or
+ *      all retries are exhausted.
  */
 export async function callLLMCompletion(
   prompt: string,
   options: LLMCompletionOptions = {}
 ): Promise<string> {
-  // Short-circuit network calls during unit test runs to ensure fast, deterministic offline execution
+  // Short-circuit network calls during unit test runs
   if (process.env.NODE_ENV === "test" && !process.env.TEST_ENABLE_REAL_LLM) {
     return "";
   }
 
-  const apiKey =
-    process.env.GROQ_API_KEY ||
-    process.env.OPENAI_API_KEY ||
-    process.env.ANTHROPIC_API_KEY ||
-    process.env.LLM_API_KEY;
-
-  if (!apiKey) {
-    console.warn("[LLM] Warning: No GROQ_API_KEY or OPENAI_API_KEY set in backend/.env. Falling back to vector search RAG.");
+  if (groqKeyPool.length === 0) {
+    console.warn(
+      "[LLM] Warning: No GROQ_API_KEY configured in backend/.env. Falling back to vector-search RAG."
+    );
     return "";
   }
 
-  const isGroq = Boolean(process.env.GROQ_API_KEY);
-  const apiUrl =
-    process.env.LLM_API_URL ||
-    (isGroq
-      ? "https://api.groq.com/openai/v1/chat/completions"
-      : "https://api.openai.com/v1/chat/completions");
-
+  const apiUrl = "https://api.groq.com/openai/v1/chat/completions";
   const model =
     options.model ||
     process.env.GROQ_MODEL ||
-    process.env.LLM_MODEL ||
-    (isGroq ? "openai/gpt-oss-120b" : "gpt-3.5-turbo");
+    "llama-3.3-70b-versatile";
 
   const messages: { role: string; content: string }[] = [];
   if (options.systemPrompt) {
@@ -50,16 +119,31 @@ export async function callLLMCompletion(
   }
   messages.push({ role: "user", content: prompt });
 
-  console.log(`[LLM] Invoking ${isGroq ? "Groq API" : "LLM API"} using model: '${model}'...`);
+  const MAX_GLOBAL_ATTEMPTS = groqKeyPool.length * 3; // each key gets ≤3 attempts
 
-  const maxRetries = 5;
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  for (let attempt = 0; attempt < MAX_GLOBAL_ATTEMPTS; attempt++) {
+    const keyIdx = pickAvailableKey();
+
+    if (keyIdx === -1) {
+      // All keys rate-limited — sleep until the earliest recovery
+      const waitMs = earliestCooldownMs() + 500;
+      console.warn(
+        `[LLM] All ${groqKeyPool.length} Groq key(s) are rate-limited. Sleeping ${Math.round(waitMs / 1000)}s until earliest recovery...`
+      );
+      await new Promise((r) => setTimeout(r, waitMs));
+      continue; // re-evaluate after sleep
+    }
+
+    const slot = groqKeyPool[keyIdx];
+    const keyLabel = groqKeyPool.length > 1 ? ` (key ${keyIdx + 1}/${groqKeyPool.length})` : "";
+    console.log(`[LLM] Invoking Groq API${keyLabel} with model '${model}' (attempt ${attempt + 1})...`);
+
     try {
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey.trim()}`,
+          Authorization: `Bearer ${slot.key}`,
         },
         body: JSON.stringify({
           model,
@@ -69,37 +153,45 @@ export async function callLLMCompletion(
       });
 
       if (response.ok) {
-        const data = (await response.json()) as { choices?: { message?: { content?: string; reasoning?: string } }[] };
+        const data = (await response.json()) as {
+          choices?: { message?: { content?: string; reasoning?: string } }[];
+        };
         const msg = data.choices?.[0]?.message;
         const resultText = (msg?.content || msg?.reasoning || "").trim();
         if (resultText) {
-          console.log(`[LLM] Received completion from ${isGroq ? "Groq" : "LLM"} (${model})`);
+          console.log(`[LLM] Received completion from Groq${keyLabel} (${model})`);
         }
         return resultText;
-      } else if (response.status === 429 && attempt < maxRetries) {
-        const errText = await response.text();
-        const match = errText.match(/Please try again in ([0-9.]+)s/i);
-        let delayMs = 4000 * attempt;
-        if (match && match[1]) {
-          const waitSec = parseFloat(match[1]);
-          if (!isNaN(waitSec)) {
-            delayMs = Math.ceil(waitSec * 1000) + 1500;
-          }
-        }
-        console.warn(`[LLM] Rate limited (429), retrying attempt ${attempt}/${maxRetries} in ${delayMs}ms...`);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+
+      if (response.status === 429) {
+        const retryMs = await parseRetryAfterMs(response);
+        console.warn(
+          `[LLM] Key ${keyIdx + 1} rate-limited (429). Cooling down for ${Math.round(retryMs / 1000)}s. Rotating to next key...`
+        );
+        slot.cooldownUntil = Date.now() + retryMs;
+        // Don't sleep — immediately loop and try next available key
         continue;
-      } else if (response.status === 400) {
+      }
+
+      if (response.status === 400) {
         try {
-          const errData = (await response.json()) as { error?: { message?: string; failed_generation?: string } };
+          const errData = (await response.json()) as {
+            error?: { message?: string; failed_generation?: string };
+          };
           if (errData.error?.failed_generation) {
             const fg = errData.error.failed_generation;
             try {
-              const parsed = JSON.parse(fg) as { name?: string; arguments?: Record<string, unknown> };
+              const parsed = JSON.parse(fg) as {
+                name?: string;
+                arguments?: Record<string, unknown>;
+              };
               const toolName = (parsed.name || "").replace(/^repo_browser\./, "");
               const argsStr = JSON.stringify(parsed.arguments || {});
               if (toolName) {
-                console.log(`[LLM] Recovered tool call from Groq failed_generation: TOOL: ${toolName}(${argsStr})`);
+                console.log(
+                  `[LLM] Recovered tool call from Groq failed_generation: TOOL: ${toolName}(${argsStr})`
+                );
                 return `TOOL: ${toolName}(${argsStr})`;
               }
             } catch {
@@ -111,21 +203,25 @@ export async function callLLMCompletion(
           const errText = await response.text();
           console.warn(`[LLM] API call failed with status 400:`, errText);
         }
-        break;
-      } else {
-        const errText = await response.text();
-        console.warn(`[LLM] API call failed with status ${response.status}:`, errText);
-        break;
+        return ""; // 400 is non-retryable
       }
+
+      // Other non-retryable errors (401, 403, 500 etc.)
+      const errText = await response.text();
+      console.warn(`[LLM] API call failed with status ${response.status}:`, errText);
+      return "";
     } catch (err: unknown) {
-      console.error(`[LLM] Exception calling LLM API (attempt ${attempt}/${maxRetries}):`, err);
-      if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
-        continue;
+      console.error(
+        `[LLM] Network exception calling Groq${keyLabel} (attempt ${attempt + 1}/${MAX_GLOBAL_ATTEMPTS}):`,
+        err
+      );
+      // Brief backoff before retrying
+      if (attempt + 1 < MAX_GLOBAL_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 2000));
       }
-      break;
     }
   }
 
+  console.error(`[LLM] All ${MAX_GLOBAL_ATTEMPTS} attempts exhausted. Falling back to RAG-only answer.`);
   return "";
 }
