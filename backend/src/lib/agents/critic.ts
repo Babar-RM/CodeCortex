@@ -2,7 +2,7 @@ import { Driver } from "neo4j-driver";
 import { getNeo4jDriver } from "../neo4j";
 
 export interface FactualClaim {
-  type: "CALLS" | "DEFINES" | "INHERITS" | "IMPORTS";
+  type: "CALLS" | "DEFINES" | "INHERITS" | "IMPORTS" | "SYMBOL_EXISTS";
   sourceEntity: string;
   targetEntity: string;
   filePath?: string;
@@ -62,14 +62,19 @@ CLAIM TYPES:
 2. "DEFINES": Claims that file F defines function/class C (e.g. "auth.ts defines handleAuth").
 3. "INHERITS": Claims that class A extends/inherits class B (e.g. "UserController inherits BaseController").
 4. "IMPORTS": Claims that file A imports file B (e.g. "routes.ts imports auth.ts").
+5. "SYMBOL_EXISTS": Claims that a specific named function, class, or file EXISTS in the codebase.
+   Emit this for EVERY concrete function name, class name, or source file path the answer asserts
+   exists. sourceEntity = the symbol name. targetEntity = "function", "class", or "file".
+   Example: answer says "extract_facts handles parsing" → emit SYMBOL_EXISTS for "extract_facts".
+   This is the HIGHEST PRIORITY claim type — it catches hallucinated symbol names first.
 
 RESPONSE FORMAT:
 You MUST respond with a valid JSON array of claim objects:
 [
   {
-    "type": "CALLS" | "DEFINES" | "INHERITS" | "IMPORTS",
-    "sourceEntity": "name of source entity",
-    "targetEntity": "name of target entity",
+    "type": "CALLS" | "DEFINES" | "INHERITS" | "IMPORTS" | "SYMBOL_EXISTS",
+    "sourceEntity": "name of source entity (or the symbol name for SYMBOL_EXISTS)",
+    "targetEntity": "name of target entity (or 'function'/'class'/'file' for SYMBOL_EXISTS)",
     "claimText": "original sentence from answer"
   }
 ]
@@ -307,6 +312,87 @@ export async function verifyClaimAgainstGraph(
         return { isVerified: false };
       }
 
+      // RFC 0033: verify that a named symbol (function/class/file) actually exists in the graph.
+      // This is the primary defence against hallucinated symbol names like "extract_facts".
+      case "SYMBOL_EXISTS": {
+        const symbolName = claim.sourceEntity;
+        const symbolType = claim.targetEntity.toLowerCase(); // "function", "class", or "file"
+
+        if (symbolType === "function") {
+          const res = await session.run(
+            `MATCH (fn:Function { repoId: $repoId, name: $name })
+             RETURN fn.filePath AS filePath, fn.startLine AS startLine, fn.endLine AS endLine
+             LIMIT 1`,
+            { repoId, name: symbolName }
+          );
+          if (res.records.length > 0) {
+            const rec = res.records[0];
+            const startLineVal = rec.get("startLine");
+            const endLineVal = rec.get("endLine");
+            return {
+              isVerified: true,
+              evidence: {
+                claim: claim.claimText,
+                filePath: rec.get("filePath") || "unknown",
+                startLine: typeof startLineVal?.toNumber === "function" ? startLineVal.toNumber() : (startLineVal || 1),
+                endLine: typeof endLineVal?.toNumber === "function" ? endLineVal.toNumber() : (endLineVal || 1),
+                graphNodeType: "Function",
+                graphNodeName: symbolName,
+              },
+            };
+          }
+          return { isVerified: false };
+        }
+
+        if (symbolType === "class") {
+          const res = await session.run(
+            `MATCH (c:Class { repoId: $repoId, name: $name })
+             RETURN c.filePath AS filePath, c.startLine AS startLine, c.endLine AS endLine
+             LIMIT 1`,
+            { repoId, name: symbolName }
+          );
+          if (res.records.length > 0) {
+            const rec = res.records[0];
+            const startLineVal = rec.get("startLine");
+            const endLineVal = rec.get("endLine");
+            return {
+              isVerified: true,
+              evidence: {
+                claim: claim.claimText,
+                filePath: rec.get("filePath") || "unknown",
+                startLine: typeof startLineVal?.toNumber === "function" ? startLineVal.toNumber() : (startLineVal || 1),
+                endLine: typeof endLineVal?.toNumber === "function" ? endLineVal.toNumber() : (endLineVal || 1),
+                graphNodeType: "Class",
+                graphNodeName: symbolName,
+              },
+            };
+          }
+          return { isVerified: false };
+        }
+
+        // "file" or unknown type — check File nodes
+        const res = await session.run(
+          `MATCH (f:File { repoId: $repoId })
+           WHERE f.path ENDS WITH $name OR f.path = $name
+           RETURN f.path AS filePath LIMIT 1`,
+          { repoId, name: symbolName }
+        );
+        if (res.records.length > 0) {
+          return {
+            isVerified: true,
+            evidence: {
+              claim: claim.claimText,
+              filePath: res.records[0].get("filePath") || symbolName,
+              startLine: 1,
+              endLine: 1,
+              graphNodeType: "File",
+              graphNodeName: symbolName,
+            },
+          };
+        }
+        return { isVerified: false };
+      }
+
       default:
         return { isVerified: false };
     }
@@ -380,9 +466,12 @@ export async function critiqueDraft(params: CritiqueDraftParams): Promise<Critiq
   }
 
   // Generate specific revision feedback
-  const feedbackLines = failedClaims.map(
-    (c) => `- Unverified claim: "${c.claimText}" (Claimed relationship ${c.sourceEntity} ${c.type} ${c.targetEntity} does not exist in the Neo4j code graph).`
-  );
+  const feedbackLines = failedClaims.map((c) => {
+    if (c.type === "SYMBOL_EXISTS") {
+      return `- FABRICATED SYMBOL: "${c.sourceEntity}" (${c.targetEntity}) does not exist anywhere in the Neo4j code graph. Do NOT mention this symbol. Remove all claims about it from your answer.`;
+    }
+    return `- Unverified claim: "${c.claimText}" (Claimed relationship ${c.sourceEntity} ${c.type} ${c.targetEntity} does not exist in the Neo4j code graph).`;
+  });
 
   return {
     verdict: "revise",

@@ -130,4 +130,28 @@ describe("Phase 5 Step 23: Critic Claim Verification Unit Tests (RFC 0023)", () 
       expect(critique.failedClaims.length).toBe(1);
     }
   });
+
+  it("should verify SYMBOL_EXISTS claim against graph when function exists", async () => {
+    const claim: FactualClaim = {
+      type: "SYMBOL_EXISTS",
+      sourceEntity: "extract_facts",
+      targetEntity: "function",
+      claimText: "extract_facts handles parsing",
+    };
+
+    const mockDriver = createMockDriver([
+      {
+        get: (key: string) => {
+          if (key === "filePath") return "parser/javascript.py";
+          if (key === "startLine") return 15;
+          if (key === "endLine") return 50;
+          return null;
+        },
+      },
+    ]);
+
+    const result = await verifyClaimAgainstGraph(claim, "repo-123", mockDriver);
+    expect(result.isVerified).toBe(true);
+    expect(result.evidence?.filePath).toBe("parser/javascript.py");
+  });
 });

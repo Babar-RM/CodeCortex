@@ -233,6 +233,177 @@ export async function listFiles(filter: string, repoId: string): Promise<string>
 }
 
 /**
+ * Tool: symbol_exists(symbolName, symbolType)
+ * RFC 0033 — checks whether a named function, class, or file exists in the code graph.
+ * Agents MUST call this before making any claim about a named symbol.
+ * If this returns NOT FOUND, the symbol is fabricated and must not be mentioned in the answer.
+ */
+export async function symbolExists(
+  symbolName: string,
+  symbolType: "function" | "class" | "file",
+  repoId: string,
+  customDriver?: Driver
+): Promise<string> {
+  const driver = customDriver || getNeo4jDriver();
+  let session;
+
+  try {
+    session = driver.session();
+
+    if (symbolType === "function") {
+      const res = await session.run(
+        `MATCH (fn:Function { repoId: $repoId, name: $name })
+         RETURN fn.filePath AS filePath, fn.startLine AS startLine, fn.endLine AS endLine
+         LIMIT 1`,
+        { repoId, name: symbolName }
+      );
+      if (res.records.length > 0) {
+        const rec = res.records[0];
+        const startLine = typeof rec.get("startLine")?.toNumber === "function" ? rec.get("startLine").toNumber() : (rec.get("startLine") ?? "?");
+        const endLine = typeof rec.get("endLine")?.toNumber === "function" ? rec.get("endLine").toNumber() : (rec.get("endLine") ?? "?");
+        return `FOUND: function '${symbolName}' exists in ${rec.get("filePath")} (lines ${startLine}–${endLine}).`;
+      }
+      return `NOT FOUND: function '${symbolName}' does not exist in the code graph. Do not make any claims about this function.`;
+    }
+
+    if (symbolType === "class") {
+      const res = await session.run(
+        `MATCH (c:Class { repoId: $repoId, name: $name })
+         RETURN c.filePath AS filePath, c.startLine AS startLine, c.endLine AS endLine
+         LIMIT 1`,
+        { repoId, name: symbolName }
+      );
+      if (res.records.length > 0) {
+        const rec = res.records[0];
+        const startLine = typeof rec.get("startLine")?.toNumber === "function" ? rec.get("startLine").toNumber() : (rec.get("startLine") ?? "?");
+        const endLine = typeof rec.get("endLine")?.toNumber === "function" ? rec.get("endLine").toNumber() : (rec.get("endLine") ?? "?");
+        return `FOUND: class '${symbolName}' exists in ${rec.get("filePath")} (lines ${startLine}–${endLine}).`;
+      }
+      return `NOT FOUND: class '${symbolName}' does not exist in the code graph. Do not make any claims about this class.`;
+    }
+
+    // file
+    const res = await session.run(
+      `MATCH (f:File { repoId: $repoId })
+       WHERE f.path ENDS WITH $name OR f.path = $name
+       RETURN f.path AS filePath LIMIT 1`,
+      { repoId, name: symbolName }
+    );
+    if (res.records.length > 0) {
+      return `FOUND: file '${symbolName}' is indexed at path ${res.records[0].get("filePath")}.`;
+    }
+    return `NOT FOUND: file '${symbolName}' does not exist in the code graph. Do not make any claims about this file.`;
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Neo4j query error";
+    return `Error checking symbol existence for '${symbolName}': ${errorMsg}`;
+  } finally {
+    if (session) {
+      try { await session.close(); } catch { /* ignore */ }
+    }
+  }
+}
+
+/**
+ * Tool: verify_call_order(callerFunction, firstCallee, secondCallee)
+ * RFC 0033 Solution A — verifies that callerFunction calls firstCallee BEFORE secondCallee
+ * by comparing lineNumber properties on the CALLS edges.
+ */
+export async function verifyCallOrder(
+  callerFunction: string,
+  firstCallee: string,
+  secondCallee: string,
+  repoId: string,
+  customDriver?: Driver
+): Promise<string> {
+  const driver = customDriver || getNeo4jDriver();
+  let session;
+
+  try {
+    session = driver.session();
+    const res = await session.run(
+      `
+      MATCH (caller:Function { repoId: $repoId, name: $caller })
+      MATCH (caller)-[a:CALLS]->(fa:Function { repoId: $repoId, name: $firstCallee })
+      MATCH (caller)-[b:CALLS]->(fb:Function { repoId: $repoId, name: $secondCallee })
+      RETURN a.lineNumber AS lineA, b.lineNumber AS lineB
+      `,
+      { repoId, caller: callerFunction, firstCallee, secondCallee }
+    );
+
+    if (res.records.length === 0) {
+      return `Cannot verify call order: '${callerFunction}' does not call both '${firstCallee}' and '${secondCallee}' according to the graph.`;
+    }
+
+    const rec = res.records[0];
+    const lineA = typeof rec.get("lineA")?.toNumber === "function" ? rec.get("lineA").toNumber() : (rec.get("lineA") ?? 0);
+    const lineB = typeof rec.get("lineB")?.toNumber === "function" ? rec.get("lineB").toNumber() : (rec.get("lineB") ?? 0);
+
+    if (lineA < lineB) {
+      return `VERIFIED: '${callerFunction}' calls '${firstCallee}' (line ${lineA}) BEFORE '${secondCallee}' (line ${lineB}).`;
+    } else if (lineA > lineB) {
+      return `INCORRECT ORDER: '${callerFunction}' calls '${secondCallee}' (line ${lineB}) BEFORE '${firstCallee}' (line ${lineA}). The claim is wrong.`;
+    } else {
+      return `SAME LINE: '${callerFunction}' calls both '${firstCallee}' and '${secondCallee}' at line ${lineA} (likely inlined or line numbers unavailable).`;
+    }
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Neo4j query error";
+    return `Error verifying call order: ${errorMsg}`;
+  } finally {
+    if (session) {
+      try { await session.close(); } catch { /* ignore */ }
+    }
+  }
+}
+
+/**
+ * Tool: get_function_signature(functionName)
+ * RFC 0033 Solution C — retrieves the exact parameter list and return type
+ * for a function from the Neo4j graph to verify LLM signature claims.
+ */
+export async function getFunctionSignature(
+  functionName: string,
+  repoId: string,
+  customDriver?: Driver
+): Promise<string> {
+  const driver = customDriver || getNeo4jDriver();
+  let session;
+
+  try {
+    session = driver.session();
+    const res = await session.run(
+      `
+      MATCH (fn:Function { repoId: $repoId, name: $functionName })
+      RETURN fn.filePath AS filePath, fn.params AS params, fn.returnType AS returnType,
+             fn.startLine AS startLine, fn.endLine AS endLine
+      LIMIT 1
+      `,
+      { repoId, functionName }
+    );
+
+    if (res.records.length === 0) {
+      return `Function '${functionName}' not found in the code graph.`;
+    }
+
+    const rec = res.records[0];
+    const filePath = rec.get("filePath") || "unknown";
+    const params: string[] = rec.get("params") || [];
+    const returnType: string | null = rec.get("returnType") || null;
+    const startLine = typeof rec.get("startLine")?.toNumber === "function" ? rec.get("startLine").toNumber() : (rec.get("startLine") ?? "?");
+    const endLine = typeof rec.get("endLine")?.toNumber === "function" ? rec.get("endLine").toNumber() : (rec.get("endLine") ?? "?");
+
+    const sig = `${functionName}(${params.join(", ")})${returnType ? `: ${returnType}` : ""}`;
+    return `Function signature: ${sig}\nDefined in: ${filePath} (lines ${startLine}–${endLine})`;
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Neo4j query error";
+    return `Error fetching signature for '${functionName}': ${errorMsg}`;
+  } finally {
+    if (session) {
+      try { await session.close(); } catch { /* ignore */ }
+    }
+  }
+}
+
+/**
  * Main dispatcher to execute a tool call requested by a specialist agent
  */
 export async function executeToolCall(
@@ -288,8 +459,32 @@ export async function executeToolCall(
       break;
     }
 
+    // RFC 0033 Solution A — verify call order using lineNumber on CALLS edges
+    case "verify_call_order": {
+      const caller = String(args.callerFunction || args.caller || args.arg || "");
+      const first = String(args.firstCallee || args.first || "");
+      const second = String(args.secondCallee || args.second || "");
+      resultText = await verifyCallOrder(caller, first, second, repoId, customDriver);
+      break;
+    }
+
+    // RFC 0033 — check symbol existence before making claims
+    case "symbol_exists": {
+      const name = String(args.symbolName || args.name || args.arg || "");
+      const typeStr = String(args.symbolType || args.type || "function") as "function" | "class" | "file";
+      resultText = await symbolExists(name, typeStr, repoId, customDriver);
+      break;
+    }
+
+    // RFC 0033 Solution C — verify function signatures from graph nodes
+    case "get_function_signature": {
+      const funcName = String(args.functionName || args.name || args.arg || "");
+      resultText = await getFunctionSignature(funcName, repoId, customDriver);
+      break;
+    }
+
     default:
-      resultText = `Unknown tool '${toolName}'. Available tools: list_files, get_callers, get_callees, get_file, search_semantic, get_class_hierarchy.`;
+      resultText = `Unknown tool '${toolName}'. Available tools: list_files, get_callers, get_callees, get_file, search_semantic, get_class_hierarchy, symbol_exists, verify_call_order, get_function_signature.`;
       break;
   }
 
