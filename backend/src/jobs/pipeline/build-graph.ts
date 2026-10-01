@@ -72,7 +72,7 @@ export async function buildGraph(params: BuildGraphParams): Promise<BuildGraphRe
     }> = [];
     const inheritanceRows: Array<{ filePath: string; className: string; parentClass: string }> = [];
     const importRows: Array<{ filePath: string; sourcePath: string }> = [];
-    const callRows: Array<{ filePath: string; callerName: string; calleeName: string }> = [];
+    const callRows: Array<{ filePath: string; callerName: string; calleeName: string; lineNumber: number }> = [];
 
     for (const fact of params.facts) {
       fileRows.push({ filePath: fact.filePath });
@@ -105,7 +105,13 @@ export async function buildGraph(params: BuildGraphParams): Promise<BuildGraphRe
       }
 
       for (const call of fact.calls) {
-        callRows.push({ filePath: fact.filePath, callerName: call.callerName, calleeName: call.calleeName });
+        callRows.push({
+          filePath: fact.filePath,
+          callerName: call.callerName,
+          calleeName: call.calleeName,
+          // lineNumber preserved for RFC 0033 call-order verification by Critic
+          lineNumber: call.lineNumber ?? 0,
+        });
       }
     }
 
@@ -230,10 +236,13 @@ export async function buildGraph(params: BuildGraphParams): Promise<BuildGraphRe
     if (callRows.length > 0) {
       const { nodes, rels } = await unwindBatch(
         callRows,
+        // RFC 0033 Solution A: store lineNumber on CALLS edge for call-order verification
         `UNWIND $batch AS row
          MATCH (caller:Function { repoId: $repoId, filePath: row.filePath, name: row.callerName })
          MERGE (callee:Function { repoId: $repoId, name: row.calleeName })
-         MERGE (caller)-[:CALLS]->(callee)`,
+         MERGE (caller)-[rel:CALLS]->(callee)
+         ON CREATE SET rel.lineNumber = row.lineNumber, rel.callerFile = row.filePath
+         ON MATCH SET rel.lineNumber = row.lineNumber, rel.callerFile = row.filePath`,
         { repoId: params.repoId }
       );
       nodesCreated += nodes;

@@ -6,6 +6,8 @@ import {
   getClassHierarchy,
   searchSemanticTool,
   executeToolCall,
+  verifyCallOrder,
+  getFunctionSignature,
 } from "../lib/agents/tools";
 import { prisma } from "../lib/prisma";
 import { Driver } from "neo4j-driver";
@@ -32,7 +34,7 @@ vi.mock("../lib/retrieval", () => ({
 }));
 
 interface MockRecord {
-  get: (key: string) => string | number | null;
+  get: (key: string) => string | number | null | { toNumber: () => number };
 }
 
 describe("Phase 5 Step 23: Agent Tools Unit Tests (RFC 0023)", () => {
@@ -123,4 +125,85 @@ describe("Phase 5 Step 23: Agent Tools Unit Tests (RFC 0023)", () => {
     expect(toolResult.toolName).toBe("get_callers");
     expect(toolResult.result).toContain("authenticate");
   });
+
+  // ── RFC 0033: new grounding tools ─────────────────────────────────────────
+
+  it("verify_call_order: returns VERIFIED when firstCallee lineNumber < secondCallee", async () => {
+    const mockDriver = ({
+      session: () => ({
+        run: vi.fn().mockResolvedValue({
+          records: [
+            { get: (key: string) => (key === "lineA" ? 62 : 136) },
+          ],
+        }),
+        close: vi.fn().mockResolvedValue(undefined),
+      }),
+    } as unknown as Driver);
+
+    const result = await verifyCallOrder("processIndexingJob", "fetchRepo", "parseFiles", "repo-123", mockDriver);
+    expect(result).toContain("VERIFIED");
+    expect(result).toContain("fetchRepo");
+    expect(result).toContain("parseFiles");
+  });
+
+  it("verify_call_order: returns INCORRECT ORDER when firstCallee line > secondCallee line", async () => {
+    const mockDriver = ({
+      session: () => ({
+        run: vi.fn().mockResolvedValue({
+          records: [
+            { get: (key: string) => (key === "lineA" ? 200 : 100) },
+          ],
+        }),
+        close: vi.fn().mockResolvedValue(undefined),
+      }),
+    } as unknown as Driver);
+
+    const result = await verifyCallOrder("processIndexingJob", "generateEmbeddings", "buildGraph", "repo-123", mockDriver);
+    expect(result).toContain("INCORRECT ORDER");
+  });
+
+  it("verify_call_order: returns not-found message when graph has no matching edges", async () => {
+    const mockDriver = createMockDriver([]);
+    const result = await verifyCallOrder("processIndexingJob", "fetchRepo", "nonExistent", "repo-123", mockDriver);
+    expect(result).toContain("Cannot verify call order");
+  });
+
+  it("get_function_signature: returns formatted signature with filePath and line range", async () => {
+    const mockDriver = ({
+      session: () => ({
+        run: vi.fn().mockResolvedValue({
+          records: [
+            {
+              get: (key: string) => {
+                switch (key) {
+                  case "filePath": return "backend/src/jobs/worker.ts";
+                  case "params": return ["job"];
+                  case "returnType": return "Promise<void>";
+                  case "startLine": return 13;
+                  case "endLine": return 209;
+                  default: return null;
+                }
+              },
+            },
+          ],
+        }),
+        close: vi.fn().mockResolvedValue(undefined),
+      }),
+    } as unknown as Driver);
+
+    const result = await getFunctionSignature("processIndexingJob", "repo-123", mockDriver);
+    expect(result).toContain("processIndexingJob(job): Promise<void>");
+    expect(result).toContain("backend/src/jobs/worker.ts");
+    expect(result).toContain("13");
+  });
+
+  it("get_function_signature: returns not-found message when function not in graph", async () => {
+    const mockDriver = createMockDriver([]);
+    const result = await getFunctionSignature("enqueueJob", "repo-123", mockDriver);
+    expect(result).toContain("not found in the code graph");
+  });
 });
+
+
+
+
